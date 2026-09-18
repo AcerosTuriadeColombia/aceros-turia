@@ -46,7 +46,7 @@ create table if not exists clientes (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
   creado_en timestamptz not null default now(),
-  creado_por uuid references asesores(id)
+  creado_por uuid references asesores(id) on delete set null
 );
 create unique index if not exists clientes_nombre_lower_idx on clientes (lower(trim(nombre)));
 
@@ -55,8 +55,18 @@ create table if not exists obras (
   nombre text not null,
   cliente_id uuid references clientes(id),
   creado_en timestamptz not null default now(),
-  creado_por uuid references asesores(id)
+  creado_por uuid references asesores(id) on delete set null
 );
+-- Corrige las FK de creado_por si la tabla ya existía sin "on delete set
+-- null" (para poder borrar un asesor que nunca tuvo rutas/visitas).
+alter table clientes drop constraint if exists clientes_creado_por_fkey;
+alter table clientes add constraint clientes_creado_por_fkey
+  foreign key (creado_por) references asesores(id) on delete set null;
+
+alter table obras drop constraint if exists obras_creado_por_fkey;
+alter table obras add constraint obras_creado_por_fkey
+  foreign key (creado_por) references asesores(id) on delete set null;
+
 -- Las obras se distinguen por cliente: dos constructoras distintas pueden
 -- tener cada una una obra con el mismo nombre (ej. "Torre 1").
 drop index if exists obras_nombre_lower_idx;
@@ -143,13 +153,13 @@ create table if not exists auditoria (
   visita_id uuid references visitas(id) on delete set null,
   accion text not null,
   detalle jsonb,
-  actor_id uuid references asesores(id),
+  actor_id uuid references asesores(id) on delete set null,
   creado_en timestamptz not null default now()
 );
 
 -- Si la tabla ya existía con las claves foráneas por defecto (sin "on delete
--- set null"), las corrige para que borrar una visita no falle ni se bloquee
--- por el historial de auditoría que la referencia.
+-- set null"), las corrige para que borrar una visita (o un asesor sin
+-- historial) no falle ni quede bloqueado por su propio registro de auditoría.
 alter table auditoria drop constraint if exists auditoria_ruta_id_fkey;
 alter table auditoria add constraint auditoria_ruta_id_fkey
   foreign key (ruta_id) references rutas(id) on delete set null;
@@ -157,6 +167,10 @@ alter table auditoria add constraint auditoria_ruta_id_fkey
 alter table auditoria drop constraint if exists auditoria_visita_id_fkey;
 alter table auditoria add constraint auditoria_visita_id_fkey
   foreign key (visita_id) references visitas(id) on delete set null;
+
+alter table auditoria drop constraint if exists auditoria_actor_id_fkey;
+alter table auditoria add constraint auditoria_actor_id_fkey
+  foreign key (actor_id) references asesores(id) on delete set null;
 
 -- Vista con el estado "efectivo": una visita programada cuya fecha ya pasó
 -- y nunca se marcó, se reporta como 'vencida' sin necesidad de un job.
@@ -476,6 +490,52 @@ begin
     raise exception 'Solo el administrador puede ver esta lista.';
   end if;
   return query select a.id, a.nombre, a.es_admin, a.activo, a.creado_en from asesores a order by a.nombre;
+end;
+$$;
+
+-- Elimina definitivamente a un asesor SOLO si nunca tuvo actividad (sin
+-- rutas, visitas ni clientes asignados) — así se conserva el historial de
+-- quien ya trabajó en el sistema. Para un asesor con historial, la vía es
+-- desactivarlo (rpc_admin_upsert_asesor con p_activo = false).
+create or replace function rpc_admin_eliminar_asesor(p_token uuid, p_asesor_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_asesor asesores;
+  v_tiene_historial boolean;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede eliminar asesores.';
+  end if;
+
+  select * into v_asesor from asesores where id = p_asesor_id;
+  if v_asesor.id is null then
+    raise exception 'Asesor no encontrado.';
+  end if;
+  if v_asesor.es_admin then
+    raise exception 'No se puede eliminar a un administrador.';
+  end if;
+
+  select exists(select 1 from rutas where asesor_id = p_asesor_id)
+      or exists(select 1 from visitas where asesor_id = p_asesor_id)
+      or exists(select 1 from cliente_asesores where asesor_id = p_asesor_id)
+    into v_tiene_historial;
+
+  if v_tiene_historial then
+    raise exception 'Este asesor ya tiene rutas, visitas o clientes asignados; no se puede eliminar. Desactívalo en su lugar para conservar su historial.';
+  end if;
+
+  delete from asesores where id = p_asesor_id;
+
+  insert into auditoria (accion, actor_id, detalle)
+  values ('eliminar_asesor', v_sesion.asesor_id, json_build_object('nombre_eliminado', v_asesor.nombre));
+
+  return json_build_object('ok', true);
 end;
 $$;
 
@@ -1501,6 +1561,7 @@ grant execute on function
   rpc_cambiar_password(uuid, text, text),
   rpc_admin_upsert_asesor(uuid, uuid, text, text, boolean),
   rpc_admin_listar_asesores(uuid),
+  rpc_admin_eliminar_asesor(uuid, uuid),
   rpc_listar_opciones(text),
   rpc_admin_listar_opciones(uuid, text),
   rpc_admin_upsert_opcion(uuid, uuid, text, text, int, boolean),
