@@ -1970,16 +1970,30 @@ to anon, authenticated;
 
 -- Asesores y contraseñas iniciales (últimos 4 dígitos del celular).
 -- Mauricio Lopera es además el administrador (gerente comercial).
-insert into asesores (nombre, password_hash, es_admin) values
-  ('Mauricio Lopera',          crypt('0706', gen_salt('bf')), true),
-  ('Ricardo Alexis Moncada',   crypt('0311', gen_salt('bf')), false),
-  ('Katty Berrio',             crypt('0902', gen_salt('bf')), false),
-  ('Olmes Ortega',             crypt('2602', gen_salt('bf')), false),
-  ('Jorge Calvo',              crypt('1611', gen_salt('bf')), false),
-  ('Diego Quintero',           crypt('0305', gen_salt('bf')), false)
-on conflict (nombre) do nothing;
+--
+-- IMPORTANTE: esto SOLO se ejecuta si la tabla de asesores está
+-- completamente vacía (instalación nueva). Si ya renombraste o borraste
+-- asesores, este bloque no hace nada — así evitamos que cada vez que se
+-- vuelva a correr este archivo se recreen con su nombre original los
+-- asesores que ya renombraste o eliminaste.
+insert into asesores (nombre, password_hash, es_admin)
+select v.nombre, crypt(v.password, gen_salt('bf')), v.es_admin
+from (values
+  ('Mauricio Lopera',          '0706', true),
+  ('Ricardo Alexis Moncada',   '0311', false),
+  ('Katty Berrio',             '0902', false),
+  ('Olmes Ortega',             '2602', false),
+  ('Jorge Calvo',              '1611', false),
+  ('Diego Quintero',           '0305', false)
+) as v(nombre, password, es_admin)
+where not exists (select 1 from asesores);
 
-insert into opciones (categoria, nombre, orden) values
+-- Misma protección: solo siembra estas opciones si la categoría está
+-- vacía, para no recrear con su nombre original una opción que Mauricio
+-- ya haya renombrado desde el panel de administrador.
+insert into opciones (categoria, nombre, orden)
+select v.categoria, v.nombre, v.orden
+from (values
   ('motivo_visita', 'Venta', 1),
   ('motivo_visita', 'Cobranza', 2),
   ('motivo_visita', 'Reclamación', 3),
@@ -1995,7 +2009,8 @@ insert into opciones (categoria, nombre, orden) values
 
   ('motivo_no_visita', 'Cliente ausente / no estaba en oficina', 1),
   ('motivo_no_visita', 'Otro', 2)
-on conflict (categoria, nombre) do nothing;
+) as v(categoria, nombre, orden)
+where not exists (select 1 from opciones where opciones.categoria = v.categoria);
 
 -- ============================================================================
 -- Fin del esquema.
