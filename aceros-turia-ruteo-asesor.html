@@ -229,17 +229,19 @@ function llenarSelectOpciones(sel, lista, placeholder) {
     lista.map(o => `<option value="${o.id}">${ruteoEscapeHtml(o.nombre)}</option>`).join('');
 }
 
+let clientesMap = new Map(); // nombre -> id (solo clientes asignados a este asesor)
+
 async function cargarCatalogos() {
   try {
-    const [clientes, obras, mv, rv, mnv] = await Promise.all([
-      ruteoSelect('clientes', 'select=nombre&order=nombre'),
-      ruteoSelect('obras', 'select=nombre&order=nombre'),
+    const [clientes, mv, rv, mnv] = await Promise.all([
+      ruteoRpcAuth('rpc_mis_clientes'),
       ruteoSelect('opciones', 'select=id,nombre&categoria=eq.motivo_visita&activo=eq.true&order=orden'),
       ruteoSelect('opciones', 'select=id,nombre&categoria=eq.resultado_visita&activo=eq.true&order=orden'),
       ruteoSelect('opciones', 'select=id,nombre&categoria=eq.motivo_no_visita&activo=eq.true&order=orden')
     ]);
-    document.getElementById('clientes-datalist').innerHTML = clientes.map(c => `<option value="${ruteoEscapeHtml(c.nombre)}">`).join('');
-    document.getElementById('obras-datalist').innerHTML = obras.map(o => `<option value="${ruteoEscapeHtml(o.nombre)}">`).join('');
+    clientesMap = new Map((clientes || []).map(c => [c.nombre, c.id]));
+    document.getElementById('clientes-datalist').innerHTML = (clientes || []).map(c => `<option value="${ruteoEscapeHtml(c.nombre)}">`).join('');
+    document.getElementById('obras-datalist').innerHTML = '';
     opciones.motivo_visita = mv; opciones.resultado_visita = rv; opciones.motivo_no_visita = mnv;
 
     llenarSelectTipo(document.getElementById('pl-tipo'));
@@ -249,6 +251,19 @@ async function cargarCatalogos() {
     llenarSelectOpciones(document.getElementById('mv-resultado'), rv);
     llenarSelectOpciones(document.getElementById('mnv-motivo'), mnv);
   } catch (e) { ruteoErr(e); }
+}
+
+// Refresca el datalist de obras con solo las obras del cliente seleccionado
+// (si el nombre escrito no coincide con un cliente conocido, queda vacío:
+// el campo sigue siendo texto libre para una obra nueva).
+async function actualizarObrasDeCliente(nombreCliente) {
+  const clienteId = clientesMap.get(nombreCliente.trim());
+  const datalist = document.getElementById('obras-datalist');
+  if (!clienteId) { datalist.innerHTML = ''; return; }
+  try {
+    const obras = await ruteoSelect('obras', `select=nombre&cliente_id=eq.${clienteId}&order=nombre`);
+    datalist.innerHTML = obras.map(o => `<option value="${ruteoEscapeHtml(o.nombre)}">`).join('');
+  } catch (e) { /* silencioso: no bloquea el formulario */ }
 }
 
 function toggleObraField(tipoSelId, rowOrFieldId) {
@@ -327,6 +342,7 @@ function iniciarEdicion(visitaId) {
   document.getElementById('pl-cliente').value = v.cliente_nombre;
   document.getElementById('pl-tipo').value = v.tipo_cliente;
   toggleObraField('pl-tipo', 'pl-obra-row');
+  actualizarObrasDeCliente(v.cliente_nombre);
   document.getElementById('pl-obra').value = v.obra_nombre || '';
   document.getElementById('pl-motivo').value = v.motivo_id || '';
   document.getElementById('pl-fecha').value = v.fecha_visita;
@@ -571,8 +587,10 @@ document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('c
 // ---------- INIT ----------
 initHeader();
 initTabs();
-document.getElementById('pl-tipo').addEventListener('change', () => toggleObraField('pl-tipo', 'pl-obra-row'));
-document.getElementById('np-tipo').addEventListener('change', () => toggleObraField('np-tipo', 'np-obra-field'));
+document.getElementById('pl-tipo').addEventListener('change', () => { toggleObraField('pl-tipo', 'pl-obra-row'); actualizarObrasDeCliente(document.getElementById('pl-cliente').value); });
+document.getElementById('np-tipo').addEventListener('change', () => { toggleObraField('np-tipo', 'np-obra-field'); actualizarObrasDeCliente(document.getElementById('np-cliente').value); });
+document.getElementById('pl-cliente').addEventListener('input', e => actualizarObrasDeCliente(e.target.value));
+document.getElementById('np-cliente').addEventListener('input', e => actualizarObrasDeCliente(e.target.value));
 document.getElementById('mv-seguimiento-check').addEventListener('change', e => {
   document.getElementById('mv-seguimiento-field').style.display = e.target.checked ? '' : 'none';
 });

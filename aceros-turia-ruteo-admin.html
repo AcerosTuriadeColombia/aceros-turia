@@ -29,6 +29,7 @@
   <button data-sec="sec-aprobaciones" class="active">📨 Aprobaciones</button>
   <button data-sec="sec-dashboard">📊 Dashboard</button>
   <button data-sec="sec-asesores">👥 Asesores</button>
+  <button data-sec="sec-clientes">🏢 Clientes</button>
   <button data-sec="sec-catalogos">🗂️ Catálogos</button>
   <button data-sec="sec-cuenta">⚙️ Mi cuenta</button>
 </nav>
@@ -158,16 +159,39 @@
     </div>
   </div>
 
-  <!-- CATÁLOGOS -->
-  <div class="section" id="sec-catalogos">
+  <!-- CLIENTES -->
+  <div class="section" id="sec-clientes">
     <div class="card">
       <div class="card-title">📋 Importar clientes</div>
       <p class="hint" style="margin-bottom:.8rem">Pega los nombres de tus clientes (uno por línea, como los exporta Excel/CSV en una sola columna) o carga un archivo .csv/.txt. Los que ya existan en el catálogo se ignoran automáticamente.</p>
       <div class="field"><label>Archivo (opcional)</label><input type="file" id="imp-archivo" accept=".csv,.txt"></div>
       <div class="field"><label>Nombres (uno por línea)</label><textarea id="imp-nombres" rows="6" placeholder="Ferretería Los Andes&#10;Constructora ABC&#10;..."></textarea></div>
+      <div class="field">
+        <label>Asignar a asesor (opcional)</label>
+        <select id="imp-asesor"><option value="">— Sin asignar —</option></select>
+      </div>
       <button class="btn btn-primary" id="btn-imp-cargar">Importar clientes</button>
     </div>
 
+    <div class="card">
+      <div class="card-title">🔗 Clientes y asesores asignados</div>
+      <p class="hint" style="margin-bottom:.8rem">Cada asesor solo ve en su planeación los clientes que tiene asignados aquí. Un cliente puede tener más de un asesor (cuentas compartidas).</p>
+      <div class="form-row">
+        <div class="field"><label>Buscar cliente</label><input type="text" id="ca-buscar" placeholder="Escribe parte del nombre…"></div>
+        <div class="field" style="display:flex;align-items:flex-end"><button class="btn btn-outline btn-block" id="btn-ca-buscar">Buscar</button></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Asesores asignados</th><th>Agregar asesor</th></tr></thead>
+          <tbody id="ca-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="ca-empty" style="display:none"><div class="icon">🏢</div><p>Sin resultados.</p></div>
+    </div>
+  </div>
+
+  <!-- CATÁLOGOS -->
+  <div class="section" id="sec-catalogos">
     <div class="card">
       <div class="card-title">🗂️ Catálogos de opciones</div>
       <div class="pill-row">
@@ -272,6 +296,7 @@ function initTabs() {
       if (btn.dataset.sec === 'sec-aprobaciones') renderAprobaciones();
       if (btn.dataset.sec === 'sec-dashboard') { renderDashboard(); buscarClientesSinVisitar(); }
       if (btn.dataset.sec === 'sec-asesores') renderAsesores();
+      if (btn.dataset.sec === 'sec-clientes') { poblarSelectAsesorImportar(); buscarClientesAsignados(); }
       if (btn.dataset.sec === 'sec-catalogos') renderCatalogo();
     });
   });
@@ -510,15 +535,72 @@ async function importarClientes() {
   const nombres = texto.split('\n')
     .map(l => l.split(',')[0].trim().replace(/^["']|["']$/g, ''))
     .filter(Boolean);
+  const asesorId = document.getElementById('imp-asesor').value || null;
 
   if (!nombres.length) { ruteoToast('Pega o carga al menos un nombre de cliente.', 'err'); return; }
 
   try {
-    const r = await ruteoRpcAuth('rpc_admin_importar_clientes', { p_nombres: nombres });
+    const r = await ruteoRpcAuth('rpc_admin_importar_clientes', { p_nombres: nombres, p_asesor_id: asesorId });
     ruteoToast(`Importación lista: ${r.creados} nuevos, ${r.existentes} ya existían ✓`);
     document.getElementById('imp-nombres').value = '';
     document.getElementById('imp-archivo').value = '';
     await cargarClientesYOpciones();
+    await buscarClientesAsignados();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function poblarSelectAsesorImportar() {
+  if (!dashAsesores.length) await cargarAsesoresChips();
+  const sel = document.getElementById('imp-asesor');
+  sel.innerHTML = '<option value="">— Sin asignar —</option>' +
+    dashAsesores.map(a => `<option value="${a.id}">${ruteoEscapeHtml(a.nombre)}</option>`).join('');
+}
+
+// ---------- CLIENTES Y ASESORES ASIGNADOS ----------
+
+async function buscarClientesAsignados() {
+  if (!dashAsesores.length) await cargarAsesoresChips();
+  const texto = document.getElementById('ca-buscar').value.trim() || null;
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_clientes', { p_texto: texto }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('ca-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('ca-tabla').innerHTML = lista.map(c => {
+    const asignadosIds = new Set(c.asesores.map(a => a.id));
+    const chips = c.asesores.map(a => `
+      <span class="badge badge-gray" style="display:inline-flex;align-items:center;gap:.3rem;margin:2px">
+        ${ruteoEscapeHtml(a.nombre)}
+        <span style="cursor:pointer;color:var(--red)" onclick="quitarAsesorDeCliente('${c.cliente_id}','${a.id}')">✕</span>
+      </span>`).join('') || '<span class="muted">Sin asignar</span>';
+    const opciones = dashAsesores.filter(a => !asignadosIds.has(a.id))
+      .map(a => `<option value="${a.id}">${ruteoEscapeHtml(a.nombre)}</option>`).join('');
+    return `<tr>
+      <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
+      <td>${chips}</td>
+      <td>
+        <select onchange="if(this.value) agregarAsesorACliente('${c.cliente_id}', this.value, this)" style="padding:.35rem .5rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.78rem">
+          <option value="">+ agregar…</option>
+          ${opciones}
+        </select>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function agregarAsesorACliente(clienteId, asesorId, sel) {
+  try {
+    await ruteoRpcAuth('rpc_admin_asignar_cliente', { p_cliente_id: clienteId, p_asesor_id: asesorId });
+    ruteoToast('Asesor asignado ✓');
+    await buscarClientesAsignados();
+  } catch (e) { ruteoErr(e); if (sel) sel.value = ''; }
+}
+
+async function quitarAsesorDeCliente(clienteId, asesorId) {
+  try {
+    await ruteoRpcAuth('rpc_admin_desasignar_cliente', { p_cliente_id: clienteId, p_asesor_id: asesorId });
+    ruteoToast('Asignación eliminada ✓');
+    await buscarClientesAsignados();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -529,7 +611,10 @@ async function renderAsesores() {
   try { lista = await ruteoRpcAuth('rpc_admin_listar_asesores') || []; } catch (e) { ruteoErr(e); return; }
   document.getElementById('as-tabla').innerHTML = lista.map(a => `
     <tr data-id="${a.id}">
-      <td>${ruteoEscapeHtml(a.nombre)}</td>
+      <td style="display:flex;gap:.4rem;align-items:center">
+        <input type="text" class="as-nombre" value="${ruteoEscapeHtml(a.nombre)}" style="padding:.4rem .6rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.85rem;width:220px">
+        <button class="btn btn-outline btn-sm" onclick="guardarNombreAsesor('${a.id}', this)">Guardar</button>
+      </td>
       <td>${a.es_admin ? '<span class="badge badge-purple">Admin</span>' : '<span class="badge badge-gray">Asesor</span>'}</td>
       <td>${a.activo ? '<span class="badge badge-green">Activo</span>' : '<span class="badge badge-red">Inactivo</span>'}</td>
       <td><input type="text" class="as-nueva-pass" placeholder="dejar vacío = sin cambio" style="padding:.4rem .6rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.8rem;width:170px"></td>
@@ -538,6 +623,16 @@ async function renderAsesores() {
         <button class="btn ${a.activo?'btn-danger':'btn-green'} btn-sm" onclick="toggleActivoAsesor('${a.id}', ${!a.activo})">${a.activo?'Desactivar':'Activar'}</button>
       </td>
     </tr>`).join('');
+}
+
+async function guardarNombreAsesor(id, btn) {
+  const row = btn.closest('tr');
+  const nuevoNombre = row.querySelector('.as-nombre').value.trim();
+  if (!nuevoNombre) { ruteoToast('El nombre no puede quedar vacío.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_asesor', { p_asesor_id: id, p_nombre: nuevoNombre });
+    ruteoToast('Nombre actualizado ✓ (a partir de ahora inicia sesión con este nombre)');
+  } catch (e) { ruteoErr(e); }
 }
 
 async function crearAsesor() {
@@ -653,6 +748,8 @@ document.getElementById('btn-imp-cargar').addEventListener('click', importarClie
 document.getElementById('imp-archivo').addEventListener('change', e => {
   if (e.target.files[0]) leerArchivoImportacion(e.target.files[0]);
 });
+document.getElementById('btn-ca-buscar').addEventListener('click', buscarClientesAsignados);
+document.getElementById('ca-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarClientesAsignados(); });
 
 (async function start() {
   if (!sesion) return;
