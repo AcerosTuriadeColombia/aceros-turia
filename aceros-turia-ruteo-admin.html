@@ -414,6 +414,8 @@ async function cargarAsesoresChips() {
         else dashAsesoresSel.delete(chip.dataset.id);
         if (dashAsesoresSel.size === 0) cont.querySelector('.chip[data-id="todos"]').classList.add('active');
       }
+      renderDashboard();
+      buscarClientesSinVisitar();
     }));
   } catch (e) { ruteoErr(e); }
 }
