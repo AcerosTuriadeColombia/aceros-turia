@@ -1228,6 +1228,127 @@ end;
 $$;
 
 -- ============================================================================
+-- 10.1. CATÁLOGO DE CLIENTES: importación masiva e historial por cliente
+-- ============================================================================
+
+-- Importa muchos nombres de cliente de una vez (ej. pegados desde un Excel).
+-- Reutiliza fn_upsert_cliente, así que es seguro repetir nombres que ya existan.
+create or replace function rpc_admin_importar_clientes(p_token uuid, p_nombres text[])
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_nombre text;
+  v_res record;
+  v_creados int := 0;
+  v_existentes int := 0;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede importar clientes.';
+  end if;
+
+  foreach v_nombre in array p_nombres loop
+    if trim(coalesce(v_nombre, '')) = '' then
+      continue;
+    end if;
+    select * into v_res from fn_upsert_cliente(v_nombre, v_sesion.asesor_id);
+    if v_res.es_nuevo then
+      v_creados := v_creados + 1;
+    else
+      v_existentes := v_existentes + 1;
+    end if;
+  end loop;
+
+  return json_build_object('ok', true, 'creados', v_creados, 'existentes', v_existentes);
+end;
+$$;
+
+-- Historial completo de visitas de un cliente puntual (para el dashboard).
+create or replace function rpc_admin_historial_cliente(p_token uuid, p_cliente_id uuid)
+returns table(
+  visita_id uuid,
+  fecha_visita date,
+  asesor_nombre text,
+  tipo_cliente text,
+  obra_nombre text,
+  motivo_id uuid,
+  estado text,
+  estado_efectivo text,
+  persona_contacto text,
+  comentarios text,
+  resultado_id uuid,
+  motivo_no_visita_id uuid,
+  motivo_cancelacion text,
+  fecha_reprogramada date
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver el historial de clientes.';
+  end if;
+
+  return query
+    select vv.id, vv.fecha_visita, a.nombre, vv.tipo_cliente, vv.obra_nombre,
+           vv.motivo_id, vv.estado, vv.estado_efectivo, vv.persona_contacto, vv.comentarios,
+           vv.resultado_id, vv.motivo_no_visita_id, vv.motivo_cancelacion, vv.fecha_reprogramada
+    from visitas_vista vv
+    join asesores a on a.id = vv.asesor_id
+    where vv.cliente_id = p_cliente_id
+    order by vv.fecha_visita desc;
+end;
+$$;
+
+-- Clientes sin una visita "visitada" en al menos p_dias días (o nunca visitados).
+create or replace function rpc_admin_clientes_sin_visitar(p_token uuid, p_dias int default 30)
+returns table(
+  cliente_id uuid,
+  cliente_nombre text,
+  ultima_visita date,
+  dias_sin_visita int,
+  ultimo_asesor text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver esta información.';
+  end if;
+
+  return query
+    select c.id, c.nombre, u.ultima_visita,
+           case when u.ultima_visita is null then null
+                else (fn_hoy_bogota() - u.ultima_visita)::int end,
+           u.ultimo_asesor
+    from clientes c
+    left join lateral (
+      select v.fecha_visita as ultima_visita, a.nombre as ultimo_asesor
+      from visitas v
+      join asesores a on a.id = v.asesor_id
+      where v.cliente_id = c.id and v.estado = 'visitada'
+      order by v.fecha_visita desc
+      limit 1
+    ) u on true
+    where u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias
+    order by u.ultima_visita asc nulls first;
+end;
+$$;
+
+-- ============================================================================
 -- 11. PERMISOS DE EJECUCIÓN (RPC) PARA anon / authenticated
 -- ============================================================================
 
@@ -1255,7 +1376,10 @@ grant execute on function
   rpc_marcar_no_visitada(uuid, uuid, uuid),
   rpc_marcar_cancelada(uuid, uuid, text),
   rpc_marcar_reprogramada(uuid, uuid, date),
-  rpc_admin_dashboard(uuid, date, date, uuid[])
+  rpc_admin_dashboard(uuid, date, date, uuid[]),
+  rpc_admin_importar_clientes(uuid, text[]),
+  rpc_admin_historial_cliente(uuid, uuid),
+  rpc_admin_clientes_sin_visitar(uuid, int)
 to anon, authenticated;
 
 -- ============================================================================
