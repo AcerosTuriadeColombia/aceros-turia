@@ -625,6 +625,7 @@ async function renderAsesores() {
       <td style="white-space:nowrap">
         <button class="btn btn-outline btn-sm" onclick="guardarAsesor('${a.id}', this)">Guardar contraseña</button>
         <button class="btn ${a.activo?'btn-danger':'btn-green'} btn-sm" onclick="toggleActivoAsesor('${a.id}', ${!a.activo})">${a.activo?'Desactivar':'Activar'}</button>
+        ${a.es_admin ? '' : `<button class="btn btn-danger btn-sm" onclick="eliminarAsesor('${a.id}', '${ruteoEscapeHtml(a.nombre)}')">Eliminar</button>`}
       </td>
     </tr>`).join('');
 }
@@ -667,6 +668,15 @@ async function toggleActivoAsesor(id, nuevoActivo) {
   try {
     await ruteoRpcAuth('rpc_admin_upsert_asesor', { p_asesor_id: id, p_activo: nuevoActivo });
     ruteoToast(nuevoActivo ? 'Asesor activado ✓' : 'Asesor desactivado ✓');
+    await renderAsesores();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function eliminarAsesor(id, nombre) {
+  if (!confirm(`¿Eliminar definitivamente a ${nombre}? Esto solo funciona si nunca ha tenido rutas, visitas ni clientes asignados. Esta acción no se puede deshacer.`)) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_eliminar_asesor', { p_asesor_id: id });
+    ruteoToast('Asesor eliminado ✓');
     await renderAsesores();
   } catch (e) { ruteoErr(e); }
 }
