@@ -27,6 +27,7 @@
 
 <nav class="app-tabs">
   <button data-sec="sec-aprobaciones" class="active">📨 Aprobaciones</button>
+  <button data-sec="sec-notificaciones">🔔 Notificaciones <span id="notif-badge" style="display:none"></span></button>
   <button data-sec="sec-dashboard">📊 Dashboard</button>
   <button data-sec="sec-asesores">👥 Asesores</button>
   <button data-sec="sec-clientes">🏢 Clientes</button>
@@ -57,6 +58,25 @@
           <tbody id="hist-tabla"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- NOTIFICACIONES -->
+  <div class="section" id="sec-notificaciones">
+    <div class="card">
+      <div class="card-title">
+        <span>🔔 Notificaciones de los asesores</span>
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text-mid)">
+          <input type="checkbox" id="notif-solo-no-leidas" checked style="width:auto"> Solo no leídas
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th>Asesor</th><th>Mensaje</th><th>Acciones</th></tr></thead>
+          <tbody id="notif-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="notif-empty" style="display:none"><div class="icon">🔔</div><p>No hay notificaciones pendientes.</p></div>
     </div>
   </div>
 
@@ -96,6 +116,17 @@
         </table>
       </div>
       <div class="empty-state" id="dash-obras-empty" style="display:none"><div class="icon">🏗️</div><p>Sin visitas a constructoras en este rango.</p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🚩 Clientes morosos</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Marcado</th><th>Reportado por</th><th>Acciones</th></tr></thead>
+          <tbody id="morosos-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="morosos-empty" style="display:none"><div class="icon">✅</div><p>No hay clientes morosos.</p></div>
     </div>
 
     <div class="card">
@@ -294,7 +325,8 @@ function initTabs() {
       btn.classList.add('active');
       document.getElementById(btn.dataset.sec).classList.add('active');
       if (btn.dataset.sec === 'sec-aprobaciones') renderAprobaciones();
-      if (btn.dataset.sec === 'sec-dashboard') { cargarAsesoresChips().then(() => { renderDashboard(); buscarClientesSinVisitar(); }); }
+      if (btn.dataset.sec === 'sec-notificaciones') renderNotificaciones();
+      if (btn.dataset.sec === 'sec-dashboard') { cargarAsesoresChips().then(() => { renderDashboard(); buscarClientesSinVisitar(); }); renderMorosos(); }
       if (btn.dataset.sec === 'sec-asesores') renderAsesores();
       if (btn.dataset.sec === 'sec-clientes') { poblarSelectAsesorImportar(); buscarClientesAsignados(); }
       if (btn.dataset.sec === 'sec-catalogos') renderCatalogo();
@@ -343,6 +375,95 @@ function estadoRutaBadge(estado) {
   const map = { borrador: ['badge-gray','Borrador'], enviada: ['badge-yellow','Enviada'], aceptada: ['badge-green','Aceptada'] };
   const [cls, label] = map[estado] || ['badge-gray', estado];
   return `<span class="badge ${cls}">${label}</span>`;
+}
+
+// ---------- NOTIFICACIONES ----------
+
+async function renderNotificaciones() {
+  const soloNoLeidas = document.getElementById('notif-solo-no-leidas').checked;
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_notificaciones', { p_solo_no_leidas: soloNoLeidas }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('notif-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('notif-tabla').innerHTML = lista.map(n => {
+    const tipoBadge = n.tipo === 'cliente_no_existe'
+      ? '<span class="badge badge-red">Cliente ya no existe</span>'
+      : '<span class="badge badge-orange">Moroso</span>';
+    let acciones = '<span class="muted">—</span>';
+    if (!n.leida && n.tipo === 'cliente_no_existe') {
+      acciones = `
+        <button class="btn btn-danger btn-sm" onclick="eliminarClienteReportado('${n.cliente_id}')">Eliminar cliente</button>
+        <button class="btn btn-outline btn-sm" onclick="descartarNotificacion('${n.id}')">Descartar (sí existe)</button>`;
+    } else if (!n.leida && n.tipo === 'cliente_moroso') {
+      acciones = `
+        <button class="btn btn-green btn-sm" onclick="resolverMoroso('${n.cliente_id}')">Resolver mora</button>
+        <button class="btn btn-outline btn-sm" onclick="descartarNotificacion('${n.id}')">Marcar leída</button>`;
+    }
+    return `<tr>
+      <td>${new Date(n.creado_en).toLocaleString('es-CO')}</td>
+      <td>${tipoBadge}</td>
+      <td>${ruteoEscapeHtml(n.cliente_nombre)}</td>
+      <td>${ruteoEscapeHtml(n.asesor_nombre || '—')}</td>
+      <td style="max-width:280px">${ruteoEscapeHtml(n.mensaje || '')}</td>
+      <td style="white-space:nowrap">${acciones}</td>
+    </tr>`;
+  }).join('');
+
+  await actualizarBadgeNotificaciones();
+}
+
+async function actualizarBadgeNotificaciones() {
+  try {
+    const noLeidas = await ruteoRpcAuth('rpc_admin_listar_notificaciones', { p_solo_no_leidas: true }) || [];
+    const badge = document.getElementById('notif-badge');
+    if (noLeidas.length) { badge.textContent = noLeidas.length; badge.className = 'badge badge-red'; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  } catch (e) { /* silencioso */ }
+}
+
+async function eliminarClienteReportado(clienteId) {
+  if (!confirm('¿Eliminar este cliente del catálogo? Su historial de rutas y visitas se conserva, pero deja de estar disponible para planear nuevas visitas.')) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_eliminar_cliente_reportado', { p_cliente_id: clienteId });
+    ruteoToast('Cliente eliminado ✓');
+    await renderNotificaciones();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function descartarNotificacion(notifId) {
+  try {
+    await ruteoRpcAuth('rpc_admin_descartar_notificacion', { p_notificacion_id: notifId });
+    ruteoToast('Notificación resuelta ✓');
+    await renderNotificaciones();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- CLIENTES MOROSOS ----------
+
+async function renderMorosos() {
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_clientes_morosos') || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('morosos-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('morosos-tabla').innerHTML = lista.map(c => `
+    <tr>
+      <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
+      <td>${c.marcado_en ? new Date(c.marcado_en).toLocaleDateString('es-CO') : '—'}</td>
+      <td>${ruteoEscapeHtml(c.asesor_nombre || '—')}</td>
+      <td><button class="btn btn-green btn-sm" onclick="resolverMoroso('${c.cliente_id}')">Resolver mora</button></td>
+    </tr>`).join('');
+}
+
+async function resolverMoroso(clienteId) {
+  if (!confirm('¿Marcar la mora de este cliente como resuelta?')) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_resolver_moroso', { p_cliente_id: clienteId });
+    ruteoToast('Mora resuelta ✓');
+    await renderMorosos();
+    await actualizarBadgeNotificaciones();
+  } catch (e) { ruteoErr(e); }
 }
 
 async function verRutaDetalle(rutaId, asesorNombre, semanaInicio, puedeAprobar) {
@@ -764,11 +885,13 @@ document.getElementById('imp-archivo').addEventListener('change', e => {
 });
 document.getElementById('btn-ca-buscar').addEventListener('click', buscarClientesAsignados);
 document.getElementById('ca-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarClientesAsignados(); });
+document.getElementById('notif-solo-no-leidas').addEventListener('change', renderNotificaciones);
 
 (async function start() {
   if (!sesion) return;
   await cargarClientesYOpciones();
   await renderAprobaciones();
+  await actualizarBadgeNotificaciones();
 })();
 </script>
 </body>
