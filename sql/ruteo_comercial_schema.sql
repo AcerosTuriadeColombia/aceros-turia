@@ -1287,6 +1287,11 @@ $$;
 
 -- Importa muchos nombres de cliente de una vez (ej. pegados desde un Excel).
 -- Reutiliza fn_upsert_cliente, así que es seguro repetir nombres que ya existan.
+-- Corrige una función anterior con menos parámetros: si no se elimina,
+-- Postgres la deja como una sobrecarga aparte y las llamadas quedan
+-- ambiguas ("Could not choose the best candidate function").
+drop function if exists rpc_admin_importar_clientes(uuid, text[]);
+
 create or replace function rpc_admin_importar_clientes(p_token uuid, p_nombres text[], p_asesor_id uuid default null)
 returns json
 language plpgsql
@@ -1433,6 +1438,9 @@ end;
 $$;
 
 -- Clientes sin una visita "visitada" en al menos p_dias días (o nunca visitados).
+-- Misma corrección que arriba: elimina la sobrecarga con menos parámetros.
+drop function if exists rpc_admin_clientes_sin_visitar(uuid, int);
+
 create or replace function rpc_admin_clientes_sin_visitar(
   p_token uuid,
   p_dias int default 30,
