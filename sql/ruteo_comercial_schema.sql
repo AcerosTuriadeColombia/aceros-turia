@@ -57,7 +57,21 @@ create table if not exists obras (
   creado_en timestamptz not null default now(),
   creado_por uuid references asesores(id)
 );
-create unique index if not exists obras_nombre_lower_idx on obras (lower(trim(nombre)));
+-- Las obras se distinguen por cliente: dos constructoras distintas pueden
+-- tener cada una una obra con el mismo nombre (ej. "Torre 1").
+drop index if exists obras_nombre_lower_idx;
+create unique index if not exists obras_cliente_nombre_lower_idx
+  on obras (cliente_id, lower(trim(nombre)));
+
+-- Qué asesor(es) atienden a cada cliente. Un cliente puede tener varios
+-- (cuentas compartidas); el desplegable de clientes de cada asesor solo
+-- muestra los suyos.
+create table if not exists cliente_asesores (
+  cliente_id uuid not null references clientes(id) on delete cascade,
+  asesor_id uuid not null references asesores(id) on delete cascade,
+  creado_en timestamptz not null default now(),
+  primary key (cliente_id, asesor_id)
+);
 
 -- Catálogos abiertos y editables por el administrador:
 --   'motivo_visita'    -> Venta, Cobranza, Reclamación, Revisión de precios
@@ -169,8 +183,9 @@ alter table auditoria enable row level security;
 alter table clientes enable row level security;
 alter table obras enable row level security;
 alter table opciones enable row level security;
+alter table cliente_asesores enable row level security;
 
-revoke all on asesores, sesiones, rutas, visitas, auditoria from anon, authenticated;
+revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores from anon, authenticated;
 
 -- Catálogos: lectura pública (no sensible), sin escritura directa.
 revoke all on clientes, obras, opciones from anon, authenticated;
@@ -280,16 +295,30 @@ begin
 
   insert into obras (nombre, cliente_id, creado_por)
   values (v_nombre, p_cliente_id, p_asesor_id)
-  on conflict (lower(trim(nombre))) do nothing
+  on conflict (cliente_id, lower(trim(nombre))) do nothing
   returning obras.id into v_id;
 
   if v_id is not null then
     return v_id;
   end if;
 
-  select o.id into v_id from obras o where lower(trim(o.nombre)) = lower(v_nombre);
+  select o.id into v_id from obras o
+  where o.cliente_id = p_cliente_id and lower(trim(o.nombre)) = lower(v_nombre);
   return v_id;
 end;
+$$;
+
+-- Vincula un cliente con un asesor (quién lo atiende). Se llama cada vez que
+-- un asesor usa ese cliente en una visita, para que quede en su lista.
+create or replace function fn_asignar_cliente_asesor(p_cliente_id uuid, p_asesor_id uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into cliente_asesores (cliente_id, asesor_id)
+  values (p_cliente_id, p_asesor_id)
+  on conflict (cliente_id, asesor_id) do nothing;
 $$;
 
 -- Garantiza que exista una ruta (borrador si es nueva) para el asesor en la
@@ -533,6 +562,28 @@ $$;
 -- 6. PLANEACIÓN SEMANAL (asesor)
 -- ============================================================================
 
+-- Clientes asignados al asesor que llama (para su desplegable de planeación).
+-- Un cliente nuevo que el asesor escriba libremente se autoasigna a él al
+-- guardarse (ver fn_asignar_cliente_asesor), así que aparecerá aquí después.
+create or replace function rpc_mis_clientes(p_token uuid)
+returns table(id uuid, nombre text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  return query
+    select c.id, c.nombre
+    from clientes c
+    join cliente_asesores ca on ca.cliente_id = c.id
+    where ca.asesor_id = v_sesion.asesor_id
+    order by c.nombre;
+end;
+$$;
+
 create or replace function rpc_mi_ruta_actual(p_token uuid)
 returns json
 language plpgsql
@@ -601,6 +652,7 @@ begin
   end if;
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
+  perform fn_asignar_cliente_asesor(v_cliente.id, v_sesion.asesor_id);
 
   if p_tipo_cliente = 'Constructor' and p_obra_nombre is not null and trim(p_obra_nombre) <> '' then
     v_obra_id := fn_upsert_obra(p_obra_nombre, v_cliente.id, v_sesion.asesor_id);
@@ -669,6 +721,7 @@ begin
   end if;
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
+  perform fn_asignar_cliente_asesor(v_cliente.id, v_sesion.asesor_id);
 
   if p_tipo_cliente = 'Constructor' and p_obra_nombre is not null and trim(p_obra_nombre) <> '' then
     v_obra_id := fn_upsert_obra(p_obra_nombre, v_cliente.id, v_sesion.asesor_id);
@@ -803,6 +856,7 @@ begin
   v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, v_fecha);
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
+  perform fn_asignar_cliente_asesor(v_cliente.id, v_sesion.asesor_id);
 
   if p_tipo_cliente = 'Constructor' and p_obra_nombre is not null and trim(p_obra_nombre) <> '' then
     v_obra_id := fn_upsert_obra(p_obra_nombre, v_cliente.id, v_sesion.asesor_id);
@@ -1233,7 +1287,7 @@ $$;
 
 -- Importa muchos nombres de cliente de una vez (ej. pegados desde un Excel).
 -- Reutiliza fn_upsert_cliente, así que es seguro repetir nombres que ya existan.
-create or replace function rpc_admin_importar_clientes(p_token uuid, p_nombres text[])
+create or replace function rpc_admin_importar_clientes(p_token uuid, p_nombres text[], p_asesor_id uuid default null)
 returns json
 language plpgsql
 security definer
@@ -1261,9 +1315,79 @@ begin
     else
       v_existentes := v_existentes + 1;
     end if;
+    if p_asesor_id is not null then
+      perform fn_asignar_cliente_asesor(v_res.id, p_asesor_id);
+    end if;
   end loop;
 
   return json_build_object('ok', true, 'creados', v_creados, 'existentes', v_existentes);
+end;
+$$;
+
+-- Lista clientes con sus asesores asignados (chips), para el panel de admin.
+-- p_texto filtra por nombre de cliente (búsqueda parcial, sin mayúsculas).
+create or replace function rpc_admin_listar_clientes(p_token uuid, p_texto text default null)
+returns table(cliente_id uuid, cliente_nombre text, asesores json)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver esta lista.';
+  end if;
+
+  return query
+    select c.id, c.nombre,
+           coalesce((
+             select json_agg(json_build_object('id', a.id, 'nombre', a.nombre) order by a.nombre)
+             from cliente_asesores ca
+             join asesores a on a.id = ca.asesor_id
+             where ca.cliente_id = c.id
+           ), '[]'::json)
+    from clientes c
+    where p_texto is null or c.nombre ilike '%' || p_texto || '%'
+    order by c.nombre
+    limit 200;
+end;
+$$;
+
+create or replace function rpc_admin_asignar_cliente(p_token uuid, p_cliente_id uuid, p_asesor_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede asignar clientes.';
+  end if;
+  perform fn_asignar_cliente_asesor(p_cliente_id, p_asesor_id);
+  return json_build_object('ok', true);
+end;
+$$;
+
+create or replace function rpc_admin_desasignar_cliente(p_token uuid, p_cliente_id uuid, p_asesor_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede quitar asignaciones.';
+  end if;
+  delete from cliente_asesores where cliente_id = p_cliente_id and asesor_id = p_asesor_id;
+  return json_build_object('ok', true);
 end;
 $$;
 
@@ -1377,9 +1501,13 @@ grant execute on function
   rpc_marcar_cancelada(uuid, uuid, text),
   rpc_marcar_reprogramada(uuid, uuid, date),
   rpc_admin_dashboard(uuid, date, date, uuid[]),
-  rpc_admin_importar_clientes(uuid, text[]),
+  rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
-  rpc_admin_clientes_sin_visitar(uuid, int)
+  rpc_admin_clientes_sin_visitar(uuid, int),
+  rpc_mis_clientes(uuid),
+  rpc_admin_listar_clientes(uuid, text),
+  rpc_admin_asignar_cliente(uuid, uuid, uuid),
+  rpc_admin_desasignar_cliente(uuid, uuid, uuid)
 to anon, authenticated;
 
 -- ============================================================================
