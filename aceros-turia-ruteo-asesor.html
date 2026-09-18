@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aceros Turia · Ruteo Comercial</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aceros-turia-ruteo-common.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="logo"><em>Aceros</em> Turia · Ruteo</div>
+  <div class="header-user">
+    <span id="hdr-nombre"><b></b></span>
+    <button class="btn-logout" id="btn-logout">Salir</button>
+  </div>
+</header>
+
+<nav class="app-tabs">
+  <button data-sec="sec-planeacion" class="active">📅 Planeación de ruta</button>
+  <button data-sec="sec-visitas">✅ Mis visitas</button>
+  <button data-sec="sec-cuenta">⚙️ Mi cuenta</button>
+</nav>
+
+<main class="app-content">
+
+  <!-- PLANEACIÓN -->
+  <div class="section active" id="sec-planeacion">
+    <div id="planeacion-banner"></div>
+
+    <div class="card">
+      <div class="card-title">
+        <span id="pl-form-title">➕ Agregar visita a la ruta</span>
+        <button class="btn btn-outline btn-sm" id="btn-abrir-no-planeada">🚨 Visita no planeada</button>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Cliente</label>
+          <input type="text" id="pl-cliente" list="clientes-datalist" placeholder="Nombre del cliente">
+          <datalist id="clientes-datalist"></datalist>
+        </div>
+        <div class="field">
+          <label>Tipo de cliente</label>
+          <select id="pl-tipo"></select>
+        </div>
+      </div>
+      <div class="form-row" id="pl-obra-row" style="display:none">
+        <div class="field">
+          <label>Obra</label>
+          <input type="text" id="pl-obra" list="obras-datalist" placeholder="Nombre de la obra">
+          <datalist id="obras-datalist"></datalist>
+        </div>
+        <div></div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Motivo de la visita</label>
+          <select id="pl-motivo"></select>
+        </div>
+        <div class="field">
+          <label>Fecha programada</label>
+          <input type="date" id="pl-fecha">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-pl-guardar">+ Agregar a la ruta</button>
+      <button class="btn btn-outline" id="btn-pl-cancelar-edicion" style="display:none">Cancelar edición</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Visitas de esta semana <small id="pl-semana-label"></small></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Motivo</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <tbody id="pl-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="pl-empty" style="display:none"><div class="icon">🗺️</div><p>Aún no has agregado visitas esta semana.</p></div>
+      <div style="margin-top:1rem">
+        <button class="btn btn-green" id="btn-enviar-ruta">Enviar ruta a aprobación</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIS VISITAS (ejecución) -->
+  <div class="section" id="sec-visitas">
+    <div class="card">
+      <div class="card-title">🔎 Filtrar</div>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="vf-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="vf-hasta"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-vf-buscar">Buscar</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Mis visitas</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Motivo</th><th>Estado</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <tbody id="vis-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="vis-empty" style="display:none"><div class="icon">📭</div><p>No hay visitas en este rango de fechas.</p></div>
+    </div>
+  </div>
+
+  <!-- MI CUENTA -->
+  <div class="section" id="sec-cuenta">
+    <div class="card" style="max-width:420px">
+      <div class="card-title">🔑 Cambiar mi contraseña</div>
+      <div class="field"><label>Contraseña actual</label><input type="password" id="cu-actual"></div>
+      <div class="field"><label>Nueva contraseña</label><input type="password" id="cu-nueva"></div>
+      <div class="field"><label>Confirmar nueva contraseña</label><input type="password" id="cu-confirmar"></div>
+      <button class="btn btn-primary" id="btn-cambiar-password">Cambiar contraseña</button>
+    </div>
+  </div>
+
+</main>
+
+<!-- MODAL: visita no planeada -->
+<div class="modal-overlay" id="modal-no-planeada">
+  <div class="modal-box">
+    <div class="modal-title">🚨 Agregar visita no planeada</div>
+    <p class="hint" style="margin-bottom:1rem">Esta visita se agrega de inmediato a tu ruta, sin importar el día.</p>
+    <div class="field"><label>Cliente</label><input type="text" id="np-cliente" list="clientes-datalist"></div>
+    <div class="field"><label>Tipo de cliente</label><select id="np-tipo"></select></div>
+    <div class="field" id="np-obra-field" style="display:none"><label>Obra</label><input type="text" id="np-obra" list="obras-datalist"></div>
+    <div class="field"><label>Motivo de la visita</label><select id="np-motivo"></select></div>
+    <div class="field"><label>Fecha de la visita</label><input type="date" id="np-fecha"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-no-planeada">Cancelar</button>
+      <button class="btn btn-primary" id="btn-np-guardar">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: marcar visitada -->
+<div class="modal-overlay" id="modal-visitada">
+  <div class="modal-box">
+    <div class="modal-title">✅ Registrar visita realizada</div>
+    <div class="field"><label>Persona que lo atendió</label><input type="text" id="mv-persona"></div>
+    <div class="field"><label>Comentarios</label><textarea id="mv-comentarios"></textarea></div>
+    <div class="field"><label>Resultado de la visita</label><select id="mv-resultado"></select></div>
+    <div class="field">
+      <label><input type="checkbox" id="mv-seguimiento-check" style="width:auto;margin-right:.4rem"> Programar seguimiento (próxima visita)</label>
+    </div>
+    <div class="field" id="mv-seguimiento-field" style="display:none">
+      <label>Fecha de la próxima visita</label>
+      <input type="date" id="mv-seguimiento-fecha">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-visitada">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mv-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: marcar no visitada -->
+<div class="modal-overlay" id="modal-no-visitada">
+  <div class="modal-box">
+    <div class="modal-title">🚫 Marcar como no visitada</div>
+    <div class="field"><label>Motivo de no visita</label><select id="mnv-motivo"></select></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-no-visitada">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mnv-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: cancelada -->
+<div class="modal-overlay" id="modal-cancelada">
+  <div class="modal-box">
+    <div class="modal-title">✖️ Visita cancelada</div>
+    <div class="field"><label>Motivo (opcional)</label><input type="text" id="mc-motivo"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-cancelada">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mc-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: reprogramada -->
+<div class="modal-overlay" id="modal-reprogramada">
+  <div class="modal-box">
+    <div class="modal-title">📆 Reprogramar visita</div>
+    <div class="field"><label>Nueva fecha</label><input type="date" id="mr-fecha"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-reprogramada">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mr-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="aceros-turia-ruteo-common.js"></script>
+<script>
+const sesion = ruteoRequireSesion();
+if (sesion && sesion.es_admin) { window.location.href = 'aceros-turia-ruteo-admin.html'; }
+let editingVisitaId = null;
+let modalTargetVisitaId = null;
+let opciones = { motivo_visita: [], resultado_visita: [], motivo_no_visita: [] };
+
+function initHeader() {
+  document.getElementById('hdr-nombre').innerHTML = `<b>${ruteoEscapeHtml(sesion.nombre)}</b>`;
+  document.getElementById('btn-logout').addEventListener('click', ruteoLogout);
+}
+
+function initTabs() {
+  document.querySelectorAll('.app-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.app-tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.sec).classList.add('active');
+      if (btn.dataset.sec === 'sec-planeacion') renderPlaneacion();
+      if (btn.dataset.sec === 'sec-visitas') renderMisVisitas();
+    });
+  });
+}
+
+function llenarSelectTipo(sel) {
+  sel.innerHTML = RUTEO_TIPOS_CLIENTE.map(t => `<option value="${t}">${t}</option>`).join('');
+}
+
+function llenarSelectOpciones(sel, lista, placeholder) {
+  sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') +
+    lista.map(o => `<option value="${o.id}">${ruteoEscapeHtml(o.nombre)}</option>`).join('');
+}
+
+async function cargarCatalogos() {
+  try {
+    const [clientes, obras, mv, rv, mnv] = await Promise.all([
+      ruteoSelect('clientes', 'select=nombre&order=nombre'),
+      ruteoSelect('obras', 'select=nombre&order=nombre'),
+      ruteoSelect('opciones', 'select=id,nombre&categoria=eq.motivo_visita&activo=eq.true&order=orden'),
+      ruteoSelect('opciones', 'select=id,nombre&categoria=eq.resultado_visita&activo=eq.true&order=orden'),
+      ruteoSelect('opciones', 'select=id,nombre&categoria=eq.motivo_no_visita&activo=eq.true&order=orden')
+    ]);
+    document.getElementById('clientes-datalist').innerHTML = clientes.map(c => `<option value="${ruteoEscapeHtml(c.nombre)}">`).join('');
+    document.getElementById('obras-datalist').innerHTML = obras.map(o => `<option value="${ruteoEscapeHtml(o.nombre)}">`).join('');
+    opciones.motivo_visita = mv; opciones.resultado_visita = rv; opciones.motivo_no_visita = mnv;
+
+    llenarSelectTipo(document.getElementById('pl-tipo'));
+    llenarSelectTipo(document.getElementById('np-tipo'));
+    llenarSelectOpciones(document.getElementById('pl-motivo'), mv);
+    llenarSelectOpciones(document.getElementById('np-motivo'), mv);
+    llenarSelectOpciones(document.getElementById('mv-resultado'), rv);
+    llenarSelectOpciones(document.getElementById('mnv-motivo'), mnv);
+  } catch (e) { ruteoErr(e); }
+}
+
+function toggleObraField(tipoSelId, rowOrFieldId) {
+  const tipo = document.getElementById(tipoSelId).value;
+  document.getElementById(rowOrFieldId).style.display = tipo === 'Constructor' ? '' : 'none';
+}
+
+// ---------- PLANEACIÓN ----------
+
+async function renderPlaneacion() {
+  const banner = document.getElementById('planeacion-banner');
+  let info;
+  try { info = await ruteoRpcAuth('rpc_mi_ruta_actual'); } catch (e) { ruteoErr(e); return; }
+  if (!info) return;
+
+  document.getElementById('pl-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(info.semana_inicio)}`;
+
+  const min = info.semana_inicio;
+  const max = (() => { const d = new Date(min + 'T00:00:00'); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); })();
+  document.getElementById('pl-fecha').min = min;
+  document.getElementById('pl-fecha').max = max;
+  if (!document.getElementById('pl-fecha').value) document.getElementById('pl-fecha').value = ruteoHoyStr() < min || ruteoHoyStr() > max ? min : ruteoHoyStr();
+
+  const estado = info.ruta ? info.ruta.estado : null;
+  let bannerHtml = '';
+  if (!info.puede_planear) {
+    bannerHtml = `<div class="banner banner-warn">⏳ La planeación solo se puede crear o modificar los días lunes y martes. Si necesitas registrar una visita nueva ahora, usa "🚨 Visita no planeada".</div>`;
+  } else if (estado === 'enviada') {
+    bannerHtml = `<div class="banner banner-info">📨 Tu ruta de esta semana ya fue enviada y está pendiente de aprobación.</div>`;
+  } else if (estado === 'aceptada') {
+    bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada.</div>`;
+  }
+  banner.innerHTML = bannerHtml;
+
+  const formHabilitado = info.puede_planear && (!estado || estado === 'borrador');
+  document.getElementById('btn-pl-guardar').disabled = !formHabilitado;
+  ['pl-cliente','pl-tipo','pl-obra','pl-motivo','pl-fecha'].forEach(id => document.getElementById(id).disabled = !formHabilitado);
+
+  let visitas = [];
+  if (info.ruta) {
+    try { visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: info.ruta.id }) || []; } catch (e) { ruteoErr(e); }
+  }
+
+  const tbody = document.getElementById('pl-tabla');
+  document.getElementById('pl-empty').style.display = visitas.length ? 'none' : 'block';
+  const puedeEditar = info.puede_planear && estado === 'borrador';
+
+  tbody.innerHTML = visitas.map(v => {
+    const motivoNombre = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+    const acciones = (v.origen === 'planeacion' && puedeEditar)
+      ? `<button class="btn btn-outline btn-sm" onclick="iniciarEdicion('${v.id}')">Editar</button>
+         <button class="btn btn-danger btn-sm" onclick="eliminarVisitaPlaneada('${v.id}')">Eliminar</button>`
+      : '<span class="muted">—</span>';
+    return `<tr data-id="${v.id}">
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}${v.cliente_es_nuevo ? ' <span class="badge badge-orange">nuevo</span>' : ''}</td>
+      <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
+      <td>${motivoNombre ? ruteoEscapeHtml(motivoNombre.nombre) : '—'}</td>
+      <td>${ruteoOrigenBadge(v.origen)}</td>
+      <td>${acciones}</td>
+    </tr>`;
+  }).join('');
+
+  window._planeacionVisitas = visitas;
+
+  const btnEnviar = document.getElementById('btn-enviar-ruta');
+  btnEnviar.disabled = !(info.puede_planear && estado === 'borrador' && visitas.length > 0);
+  btnEnviar.onclick = enviarRuta;
+}
+
+function iniciarEdicion(visitaId) {
+  const v = (window._planeacionVisitas || []).find(x => x.id === visitaId);
+  if (!v) return;
+  editingVisitaId = visitaId;
+  document.getElementById('pl-cliente').value = v.cliente_nombre;
+  document.getElementById('pl-tipo').value = v.tipo_cliente;
+  toggleObraField('pl-tipo', 'pl-obra-row');
+  document.getElementById('pl-obra').value = v.obra_nombre || '';
+  document.getElementById('pl-motivo').value = v.motivo_id || '';
+  document.getElementById('pl-fecha').value = v.fecha_visita;
+  document.getElementById('pl-form-title').textContent = '✏️ Editar visita';
+  document.getElementById('btn-pl-guardar').textContent = 'Guardar cambios';
+  document.getElementById('btn-pl-cancelar-edicion').style.display = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelarEdicion() {
+  editingVisitaId = null;
+  document.getElementById('pl-cliente').value = '';
+  document.getElementById('pl-obra').value = '';
+  document.getElementById('pl-motivo').value = '';
+  document.getElementById('pl-form-title').textContent = '➕ Agregar visita a la ruta';
+  document.getElementById('btn-pl-guardar').textContent = '+ Agregar a la ruta';
+  document.getElementById('btn-pl-cancelar-edicion').style.display = 'none';
+}
+
+async function guardarVisitaPlaneada() {
+  const cliente = document.getElementById('pl-cliente').value.trim();
+  const tipo = document.getElementById('pl-tipo').value;
+  const obra = document.getElementById('pl-obra').value.trim();
+  const motivoId = document.getElementById('pl-motivo').value || null;
+  const fecha = document.getElementById('pl-fecha').value;
+
+  if (!cliente) { ruteoToast('Ingresa el nombre del cliente.', 'err'); return; }
+  if (!fecha) { ruteoToast('Selecciona la fecha de la visita.', 'err'); return; }
+
+  try {
+    if (editingVisitaId) {
+      await ruteoRpcAuth('rpc_editar_visita_planeada', {
+        p_visita_id: editingVisitaId, p_cliente_nombre: cliente, p_tipo_cliente: tipo,
+        p_obra_nombre: obra || null, p_motivo_id: motivoId, p_fecha_visita: fecha
+      });
+      ruteoToast('Visita actualizada ✓');
+    } else {
+      await ruteoRpcAuth('rpc_agregar_visita_planeada', {
+        p_cliente_nombre: cliente, p_tipo_cliente: tipo, p_obra_nombre: obra || null,
+        p_motivo_id: motivoId, p_fecha_visita: fecha
+      });
+      ruteoToast('Visita agregada a la ruta ✓');
+    }
+    cancelarEdicion();
+    document.getElementById('pl-cliente').value = '';
+    document.getElementById('pl-obra').value = '';
+    await cargarCatalogos();
+    await renderPlaneacion();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function eliminarVisitaPlaneada(id) {
+  if (!confirm('¿Eliminar esta visita de la planeación?')) return;
+  try {
+    await ruteoRpcAuth('rpc_eliminar_visita_planeada', { p_visita_id: id });
+    ruteoToast('Visita eliminada ✓');
+    await renderPlaneacion();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function enviarRuta() {
+  if (!confirm('¿Enviar la ruta de esta semana a aprobación? No podrás agregar más visitas planeadas hasta que sea revisada.')) return;
+  try {
+    await ruteoRpcAuth('rpc_enviar_ruta');
+    ruteoToast('Ruta enviada a aprobación ✓');
+    await renderPlaneacion();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- VISITA NO PLANEADA ----------
+
+function abrirModalNoPlaneada() {
+  document.getElementById('np-cliente').value = '';
+  document.getElementById('np-obra').value = '';
+  document.getElementById('np-motivo').value = '';
+  document.getElementById('np-fecha').value = ruteoHoyStr();
+  toggleObraField('np-tipo', 'np-obra-field');
+  abrirModal('modal-no-planeada');
+}
+
+async function guardarNoPlaneada() {
+  const cliente = document.getElementById('np-cliente').value.trim();
+  const tipo = document.getElementById('np-tipo').value;
+  const obra = document.getElementById('np-obra').value.trim();
+  const motivoId = document.getElementById('np-motivo').value || null;
+  const fecha = document.getElementById('np-fecha').value || null;
+
+  if (!cliente) { ruteoToast('Ingresa el nombre del cliente.', 'err'); return; }
+
+  try {
+    await ruteoRpcAuth('rpc_agregar_visita_no_planeada', {
+      p_cliente_nombre: cliente, p_tipo_cliente: tipo, p_obra_nombre: obra || null,
+      p_motivo_id: motivoId, p_fecha_visita: fecha
+    });
+    ruteoToast('Visita no planeada agregada ✓');
+    cerrarModal('modal-no-planeada');
+    await cargarCatalogos();
+    await renderPlaneacion();
+    await renderMisVisitas();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- MIS VISITAS (ejecución) ----------
+
+async function renderMisVisitas() {
+  let desde = document.getElementById('vf-desde').value;
+  let hasta = document.getElementById('vf-hasta').value;
+  if (!desde) {
+    desde = ruteoLunesDeSemana(ruteoHoyStr());
+    document.getElementById('vf-desde').value = desde;
+  }
+  if (!hasta) {
+    const d = new Date(desde + 'T00:00:00'); d.setDate(d.getDate() + 20);
+    hasta = d.toISOString().slice(0,10);
+    document.getElementById('vf-hasta').value = hasta;
+  }
+
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_listar_mis_visitas', { p_desde: desde, p_hasta: hasta }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  window._misVisitas = visitas;
+  const tbody = document.getElementById('vis-tabla');
+  document.getElementById('vis-empty').style.display = visitas.length ? 'none' : 'block';
+
+  tbody.innerHTML = visitas.map(v => {
+    const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+    let acciones = '<span class="muted">—</span>';
+    if (v.estado === 'programada') {
+      acciones = `
+        <button class="btn btn-green btn-sm" onclick="abrirModalVisitada('${v.id}')">Visitada</button>
+        <button class="btn btn-outline btn-sm" onclick="abrirModalNoVisitada('${v.id}')">No visitada</button>
+        <button class="btn btn-outline btn-sm" onclick="abrirModalCancelada('${v.id}')">Cancelar</button>
+        <button class="btn btn-outline btn-sm" onclick="abrirModalReprogramada('${v.id}')">Reprogramar</button>`;
+    }
+    return `<tr>
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}${v.obra_nombre ? '<br><span class="muted">🏗️ '+ruteoEscapeHtml(v.obra_nombre)+'</span>' : ''}</td>
+      <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</td>
+      <td>${ruteoEstadoBadge(v.estado_efectivo)}</td>
+      <td>${ruteoOrigenBadge(v.origen)}</td>
+      <td style="white-space:nowrap">${acciones}</td>
+    </tr>`;
+  }).join('');
+}
+
+function abrirModalVisitada(id) {
+  modalTargetVisitaId = id;
+  document.getElementById('mv-persona').value = '';
+  document.getElementById('mv-comentarios').value = '';
+  document.getElementById('mv-resultado').value = '';
+  document.getElementById('mv-seguimiento-check').checked = false;
+  document.getElementById('mv-seguimiento-field').style.display = 'none';
+  document.getElementById('mv-seguimiento-fecha').value = '';
+  abrirModal('modal-visitada');
+}
+async function guardarVisitada() {
+  const seguimiento = document.getElementById('mv-seguimiento-check').checked;
+  const fechaSeg = document.getElementById('mv-seguimiento-fecha').value;
+  if (seguimiento && !fechaSeg) { ruteoToast('Indica la fecha de seguimiento.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_marcar_visitada', {
+      p_visita_id: modalTargetVisitaId,
+      p_persona_contacto: document.getElementById('mv-persona').value.trim() || null,
+      p_comentarios: document.getElementById('mv-comentarios').value.trim() || null,
+      p_resultado_id: document.getElementById('mv-resultado').value || null,
+      p_seguimiento_fecha: seguimiento ? fechaSeg : null
+    });
+    ruteoToast('Visita registrada ✓');
+    cerrarModal('modal-visitada');
+    await renderMisVisitas();
+  } catch (e) { ruteoErr(e); }
+}
+
+function abrirModalNoVisitada(id) {
+  modalTargetVisitaId = id;
+  document.getElementById('mnv-motivo').value = '';
+  abrirModal('modal-no-visitada');
+}
+async function guardarNoVisitada() {
+  try {
+    await ruteoRpcAuth('rpc_marcar_no_visitada', { p_visita_id: modalTargetVisitaId, p_motivo_no_visita_id: document.getElementById('mnv-motivo').value || null });
+    ruteoToast('Registrado como no visitada ✓');
+    cerrarModal('modal-no-visitada');
+    await renderMisVisitas();
+  } catch (e) { ruteoErr(e); }
+}
+
+function abrirModalCancelada(id) {
+  modalTargetVisitaId = id;
+  document.getElementById('mc-motivo').value = '';
+  abrirModal('modal-cancelada');
+}
+async function guardarCancelada() {
+  try {
+    await ruteoRpcAuth('rpc_marcar_cancelada', { p_visita_id: modalTargetVisitaId, p_motivo: document.getElementById('mc-motivo').value.trim() || null });
+    ruteoToast('Visita cancelada ✓');
+    cerrarModal('modal-cancelada');
+    await renderMisVisitas();
+  } catch (e) { ruteoErr(e); }
+}
+
+function abrirModalReprogramada(id) {
+  modalTargetVisitaId = id;
+  document.getElementById('mr-fecha').value = '';
+  abrirModal('modal-reprogramada');
+}
+async function guardarReprogramada() {
+  const fecha = document.getElementById('mr-fecha').value;
+  if (!fecha) { ruteoToast('Selecciona la nueva fecha.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_marcar_reprogramada', { p_visita_id: modalTargetVisitaId, p_nueva_fecha: fecha });
+    ruteoToast('Visita reprogramada ✓');
+    cerrarModal('modal-reprogramada');
+    await renderMisVisitas();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- MI CUENTA ----------
+
+async function cambiarPassword() {
+  const actual = document.getElementById('cu-actual').value;
+  const nueva = document.getElementById('cu-nueva').value;
+  const confirmar = document.getElementById('cu-confirmar').value;
+  if (!actual || !nueva) { ruteoToast('Completa todos los campos.', 'err'); return; }
+  if (nueva !== confirmar) { ruteoToast('Las contraseñas nuevas no coinciden.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_cambiar_password', { p_actual: actual, p_nueva: nueva });
+    ruteoToast('Contraseña actualizada ✓');
+    document.getElementById('cu-actual').value = '';
+    document.getElementById('cu-nueva').value = '';
+    document.getElementById('cu-confirmar').value = '';
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- MODAL HELPERS ----------
+function abrirModal(id) { document.getElementById(id).classList.add('show'); }
+function cerrarModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => cerrarModal(btn.dataset.close)));
+
+// ---------- INIT ----------
+initHeader();
+initTabs();
+document.getElementById('pl-tipo').addEventListener('change', () => toggleObraField('pl-tipo', 'pl-obra-row'));
+document.getElementById('np-tipo').addEventListener('change', () => toggleObraField('np-tipo', 'np-obra-field'));
+document.getElementById('mv-seguimiento-check').addEventListener('change', e => {
+  document.getElementById('mv-seguimiento-field').style.display = e.target.checked ? '' : 'none';
+});
+document.getElementById('btn-pl-guardar').addEventListener('click', guardarVisitaPlaneada);
+document.getElementById('btn-pl-cancelar-edicion').addEventListener('click', cancelarEdicion);
+document.getElementById('btn-abrir-no-planeada').addEventListener('click', abrirModalNoPlaneada);
+document.getElementById('btn-np-guardar').addEventListener('click', guardarNoPlaneada);
+document.getElementById('btn-vf-buscar').addEventListener('click', renderMisVisitas);
+document.getElementById('btn-mv-guardar').addEventListener('click', guardarVisitada);
+document.getElementById('btn-mnv-guardar').addEventListener('click', guardarNoVisitada);
+document.getElementById('btn-mc-guardar').addEventListener('click', guardarCancelada);
+document.getElementById('btn-mr-guardar').addEventListener('click', guardarReprogramada);
+document.getElementById('btn-cambiar-password').addEventListener('click', cambiarPassword);
+
+(async function start() {
+  if (!sesion) return;
+  await cargarCatalogos();
+  await renderPlaneacion();
+})();
+</script>
+</body>
+</html>

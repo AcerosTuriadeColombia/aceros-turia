@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aceros Turia · Ruteo Comercial · Ingreso</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aceros-turia-ruteo-common.css">
+</head>
+<body class="login-body">
+
+<div class="login-card">
+  <div class="login-logo">
+    <div class="wordmark"><em>Aceros</em> Turia</div>
+    <div class="sub">Ruteo comercial</div>
+  </div>
+
+  <div class="field">
+    <label>Asesor</label>
+    <select id="login-nombre">
+      <option value="">— Selecciona tu nombre —</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Contraseña</label>
+    <input type="password" id="login-password" placeholder="••••" maxlength="20" autocomplete="current-password">
+  </div>
+  <button class="btn btn-primary btn-block" id="btn-login">Ingresar</button>
+  <div class="login-error" id="login-error"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="aceros-turia-ruteo-common.js"></script>
+<script>
+(function redirectIfLogged() {
+  const s = ruteoGetSesion();
+  if (s && s.token) {
+    window.location.href = s.es_admin ? 'aceros-turia-ruteo-admin.html' : 'aceros-turia-ruteo-asesor.html';
+  }
+})();
+
+async function cargarAsesores() {
+  const sel = document.getElementById('login-nombre');
+  try {
+    const asesores = await ruteoRpc('rpc_listar_asesores_activos');
+    (asesores || []).forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.nombre;
+      o.textContent = a.nombre;
+      sel.appendChild(o);
+    });
+  } catch (e) {
+    document.getElementById('login-error').textContent = 'No se pudo cargar la lista de asesores.';
+  }
+}
+cargarAsesores();
+
+async function doLogin() {
+  const nombre = document.getElementById('login-nombre').value;
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+
+  if (!nombre) { errEl.textContent = 'Selecciona tu nombre.'; return; }
+  if (!password) { errEl.textContent = 'Ingresa tu contraseña.'; return; }
+
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true; btn.textContent = 'Ingresando…';
+  try {
+    const r = await ruteoRpc('rpc_login', { p_nombre: nombre, p_password: password });
+    ruteoSetSesion(r);
+    window.location.href = r.es_admin ? 'aceros-turia-ruteo-admin.html' : 'aceros-turia-ruteo-asesor.html';
+  } catch (e) {
+    errEl.textContent = e.message || 'No se pudo iniciar sesión.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ingresar';
+  }
+}
+
+document.getElementById('btn-login').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>
