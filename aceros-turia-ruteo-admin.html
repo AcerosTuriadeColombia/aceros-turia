@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aceros Turia · Ruteo Comercial · Administración</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="aceros-turia-ruteo-common.css">
+<style>
+  .barrow { display:flex; align-items:center; gap:.7rem; margin-bottom:.6rem; }
+  .barrow .barlabel { width:150px; font-size:.78rem; color:var(--text-mid); flex-shrink:0; }
+  .barrow .bartrack { flex:1; background:var(--surface2); border-radius:6px; height:14px; overflow:hidden; }
+  .barrow .barfill { height:100%; border-radius:6px; }
+  .barrow .barval { width:42px; text-align:right; font-size:.78rem; font-weight:700; flex-shrink:0; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="logo"><em>Aceros</em> Turia · Ruteo</div>
+  <div class="header-user">
+    <span id="hdr-nombre"><b></b></span>
+    <span class="badge-admin">Administrador</span>
+    <button class="btn-logout" id="btn-logout">Salir</button>
+  </div>
+</header>
+
+<nav class="app-tabs">
+  <button data-sec="sec-aprobaciones" class="active">📨 Aprobaciones</button>
+  <button data-sec="sec-dashboard">📊 Dashboard</button>
+  <button data-sec="sec-asesores">👥 Asesores</button>
+  <button data-sec="sec-catalogos">🗂️ Catálogos</button>
+  <button data-sec="sec-cuenta">⚙️ Mi cuenta</button>
+</nav>
+
+<main class="app-content">
+
+  <!-- APROBACIONES -->
+  <div class="section active" id="sec-aprobaciones">
+    <div class="card">
+      <div class="card-title">📨 Rutas pendientes de aprobación</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Asesor</th><th>Semana</th><th>Enviada</th><th># Visitas</th><th>Acciones</th></tr></thead>
+          <tbody id="apr-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="apr-empty" style="display:none"><div class="icon">✅</div><p>No hay rutas pendientes por aprobar.</p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗺️ Historial de rutas</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Asesor</th><th>Semana</th><th>Estado</th><th>Aprobada</th><th># Visitas</th></tr></thead>
+          <tbody id="hist-tabla"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="section" id="sec-dashboard">
+    <div class="card">
+      <div class="card-title">🔎 Filtros</div>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="dash-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="dash-hasta"></div>
+      </div>
+      <div class="field">
+        <label>Asesores</label>
+        <div class="chip-select" id="dash-asesores-chips"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-dash-buscar">Actualizar dashboard</button>
+    </div>
+
+    <div class="stats-row" id="dash-stats"></div>
+
+    <div class="card">
+      <div class="card-title">📊 Programadas vs. visitadas vs. no realizadas</div>
+      <div id="dash-comparativo"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">👥 Cumplimiento por asesor</div>
+      <div id="dash-por-asesor"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🏗️ Obras visitadas por constructora</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Constructora</th><th>Obras distintas visitadas</th><th>Visitas totales</th></tr></thead>
+          <tbody id="dash-obras"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="dash-obras-empty" style="display:none"><div class="icon">🏗️</div><p>Sin visitas a constructoras en este rango.</p></div>
+    </div>
+  </div>
+
+  <!-- ASESORES -->
+  <div class="section" id="sec-asesores">
+    <div class="card">
+      <div class="card-title">➕ Nuevo asesor</div>
+      <div class="form-row-3">
+        <div class="field"><label>Nombre</label><input type="text" id="as-nombre"></div>
+        <div class="field"><label>Contraseña inicial</label><input type="text" id="as-password" placeholder="Ej: últimos 4 dígitos del celular"></div>
+        <div class="field" style="display:flex;align-items:flex-end"><button class="btn btn-primary btn-block" id="btn-as-crear">Crear asesor</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">👥 Asesores registrados</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Acciones</th></tr></thead>
+          <tbody id="as-tabla"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CATÁLOGOS -->
+  <div class="section" id="sec-catalogos">
+    <div class="card">
+      <div class="card-title">🗂️ Catálogos de opciones</div>
+      <div class="pill-row">
+        <button class="btn btn-outline btn-sm cat-tab active" data-cat="motivo_visita">Motivo de visita</button>
+        <button class="btn btn-outline btn-sm cat-tab" data-cat="resultado_visita">Resultado de visita</button>
+        <button class="btn btn-outline btn-sm cat-tab" data-cat="motivo_no_visita">Motivo de no visita</button>
+      </div>
+
+      <div class="form-row">
+        <div class="field"><label>Nueva opción</label><input type="text" id="cat-nombre"></div>
+        <div class="field" style="display:flex;align-items:flex-end"><button class="btn btn-primary btn-block" id="btn-cat-crear">Agregar opción</button></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nombre</th><th>Orden</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="cat-tabla"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MI CUENTA -->
+  <div class="section" id="sec-cuenta">
+    <div class="card" style="max-width:420px">
+      <div class="card-title">🔑 Cambiar mi contraseña</div>
+      <div class="field"><label>Contraseña actual</label><input type="password" id="cu-actual"></div>
+      <div class="field"><label>Nueva contraseña</label><input type="password" id="cu-nueva"></div>
+      <div class="field"><label>Confirmar nueva contraseña</label><input type="password" id="cu-confirmar"></div>
+      <button class="btn btn-primary" id="btn-cambiar-password">Cambiar contraseña</button>
+    </div>
+  </div>
+
+</main>
+
+<!-- MODAL: ver visitas de una ruta -->
+<div class="modal-overlay" id="modal-ruta-detalle">
+  <div class="modal-box" style="max-width:720px">
+    <div class="modal-title" id="rd-titulo">Detalle de la ruta</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Origen</th></tr></thead>
+        <tbody id="rd-tabla"></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-ruta-detalle">Cerrar</button>
+      <button class="btn btn-green" id="btn-rd-aprobar">Aprobar ruta</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="aceros-turia-ruteo-common.js"></script>
+<script>
+const sesion = ruteoRequireSesion();
+if (sesion && !sesion.es_admin) { window.location.href = 'aceros-turia-ruteo-asesor.html'; }
+let dashAsesores = [];
+let dashAsesoresSel = new Set();
+let catActual = 'motivo_visita';
+let rdRutaId = null;
+
+function initHeader() {
+  document.getElementById('hdr-nombre').innerHTML = `<b>${ruteoEscapeHtml(sesion.nombre)}</b>`;
+  document.getElementById('btn-logout').addEventListener('click', ruteoLogout);
+}
+
+function initTabs() {
+  document.querySelectorAll('.app-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.app-tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.sec).classList.add('active');
+      if (btn.dataset.sec === 'sec-aprobaciones') renderAprobaciones();
+      if (btn.dataset.sec === 'sec-dashboard') renderDashboard();
+      if (btn.dataset.sec === 'sec-asesores') renderAsesores();
+      if (btn.dataset.sec === 'sec-catalogos') renderCatalogo();
+    });
+  });
+}
+
+// ---------- APROBACIONES ----------
+
+async function renderAprobaciones() {
+  let pendientes, todas;
+  try {
+    [pendientes, todas] = await Promise.all([
+      ruteoRpcAuth('rpc_admin_listar_rutas', { p_estado: 'enviada' }),
+      ruteoRpcAuth('rpc_admin_listar_rutas', { p_estado: null })
+    ]);
+  } catch (e) { ruteoErr(e); return; }
+
+  pendientes = pendientes || []; todas = todas || [];
+  window._rutasPendientes = pendientes;
+
+  document.getElementById('apr-empty').style.display = pendientes.length ? 'none' : 'block';
+  document.getElementById('apr-tabla').innerHTML = pendientes.map(r => `
+    <tr>
+      <td>${ruteoEscapeHtml(r.asesor_nombre)}</td>
+      <td>Semana ${ruteoRangoSemanaLabel(r.semana_inicio)}</td>
+      <td>${r.enviada_en ? new Date(r.enviada_en).toLocaleString('es-CO') : '—'}</td>
+      <td>${r.total_visitas}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="verRutaDetalle('${r.id}', '${ruteoEscapeHtml(r.asesor_nombre)}', '${r.semana_inicio}', true)">Ver / Aprobar</button>
+      </td>
+    </tr>`).join('');
+
+  document.getElementById('hist-tabla').innerHTML = todas.map(r => `
+    <tr>
+      <td>${ruteoEscapeHtml(r.asesor_nombre)}</td>
+      <td>Semana ${ruteoRangoSemanaLabel(r.semana_inicio)}</td>
+      <td>${estadoRutaBadge(r.estado)}</td>
+      <td>${r.aprobada_en ? new Date(r.aprobada_en).toLocaleString('es-CO') : '—'}</td>
+      <td>${r.total_visitas}</td>
+    </tr>`).join('');
+}
+
+function estadoRutaBadge(estado) {
+  const map = { borrador: ['badge-gray','Borrador'], enviada: ['badge-yellow','Enviada'], aceptada: ['badge-green','Aceptada'] };
+  const [cls, label] = map[estado] || ['badge-gray', estado];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+async function verRutaDetalle(rutaId, asesorNombre, semanaInicio, puedeAprobar) {
+  rdRutaId = rutaId;
+  document.getElementById('rd-titulo').textContent = `${asesorNombre} — Semana ${ruteoRangoSemanaLabel(semanaInicio)}`;
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: rutaId }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('rd-tabla').innerHTML = visitas.map(v => `
+    <tr>
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}</td>
+      <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
+      <td>${ruteoOrigenBadge(v.origen)}</td>
+    </tr>`).join('');
+
+  document.getElementById('btn-rd-aprobar').style.display = puedeAprobar ? '' : 'none';
+  abrirModal('modal-ruta-detalle');
+}
+
+document.getElementById('btn-rd-aprobar').addEventListener('click', async () => {
+  if (!rdRutaId) return;
+  if (!confirm('¿Aprobar esta ruta? El asesor podrá ver sus visitas como aceptadas.')) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_aprobar_ruta', { p_ruta_id: rdRutaId });
+    ruteoToast('Ruta aprobada ✓');
+    cerrarModal('modal-ruta-detalle');
+    await renderAprobaciones();
+  } catch (e) { ruteoErr(e); }
+});
+
+// ---------- DASHBOARD ----------
+
+async function cargarAsesoresChips() {
+  try {
+    const lista = await ruteoRpcAuth('rpc_admin_listar_asesores') || [];
+    dashAsesores = lista.filter(a => !a.es_admin);
+    const cont = document.getElementById('dash-asesores-chips');
+    cont.innerHTML = `<span class="chip active" data-id="todos">Todos</span>` +
+      dashAsesores.map(a => `<span class="chip" data-id="${a.id}">${ruteoEscapeHtml(a.nombre)}</span>`).join('');
+    cont.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => {
+      if (chip.dataset.id === 'todos') {
+        dashAsesoresSel.clear();
+        cont.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      } else {
+        cont.querySelector('.chip[data-id="todos"]').classList.remove('active');
+        chip.classList.toggle('active');
+        if (chip.classList.contains('active')) dashAsesoresSel.add(chip.dataset.id);
+        else dashAsesoresSel.delete(chip.dataset.id);
+        if (dashAsesoresSel.size === 0) cont.querySelector('.chip[data-id="todos"]').classList.add('active');
+      }
+    }));
+  } catch (e) { ruteoErr(e); }
+}
+
+async function renderDashboard() {
+  if (!document.getElementById('dash-desde').value) {
+    const hoy = new Date();
+    const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    document.getElementById('dash-desde').value = primero.toISOString().slice(0,10);
+    document.getElementById('dash-hasta').value = ruteoHoyStr();
+  }
+  if (!dashAsesores.length) await cargarAsesoresChips();
+
+  const desde = document.getElementById('dash-desde').value;
+  const hasta = document.getElementById('dash-hasta').value;
+  const asesorIds = dashAsesoresSel.size ? Array.from(dashAsesoresSel) : null;
+
+  let d;
+  try { d = await ruteoRpcAuth('rpc_admin_dashboard', { p_desde: desde, p_hasta: hasta, p_asesor_ids: asesorIds }); }
+  catch (e) { ruteoErr(e); return; }
+  if (!d) return;
+
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${d.programadas}</div><div class="stat-label">Programadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.visitadas}</div><div class="stat-label">Visitadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.no_realizadas}</div><div class="stat-label">No realizadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.clientes_nuevos}</div><div class="stat-label">Clientes nuevos</div></div>`;
+
+  const max = Math.max(d.programadas, 1);
+  document.getElementById('dash-comparativo').innerHTML = [
+    ['Programadas', d.programadas, 'var(--blue)'],
+    ['Visitadas', d.visitadas, 'var(--green)'],
+    ['No realizadas', d.no_realizadas, 'var(--red)']
+  ].map(([label, val, color]) => `
+    <div class="barrow">
+      <div class="barlabel">${label}</div>
+      <div class="bartrack"><div class="barfill" style="width:${Math.min(100, val/max*100)}%;background:${color}"></div></div>
+      <div class="barval">${val}</div>
+    </div>`).join('');
+
+  document.getElementById('dash-por-asesor').innerHTML = (d.por_asesor || []).map(a => {
+    const pct = a.programadas ? Math.round(a.visitadas / a.programadas * 100) : 0;
+    return `<div class="barrow">
+      <div class="barlabel">${ruteoEscapeHtml(a.asesor)}</div>
+      <div class="bartrack"><div class="barfill" style="width:${pct}%;background:var(--accent)"></div></div>
+      <div class="barval">${pct}%</div>
+    </div>
+    <div class="hint" style="margin:-.3rem 0 .6rem 158px">${a.programadas} prog. · ${a.visitadas} visit. · ${a.no_realizadas} no real.</div>`;
+  }).join('') || '<p class="muted">Sin datos en este rango.</p>';
+
+  const obras = d.obras_por_constructora || [];
+  document.getElementById('dash-obras-empty').style.display = obras.length ? 'none' : 'block';
+  document.getElementById('dash-obras').innerHTML = obras.map(o => `
+    <tr><td>${ruteoEscapeHtml(o.constructora)}</td><td>${o.obras_visitadas}</td><td>${o.visitas}</td></tr>`).join('');
+}
+
+// ---------- ASESORES ----------
+
+async function renderAsesores() {
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_asesores') || []; } catch (e) { ruteoErr(e); return; }
+  document.getElementById('as-tabla').innerHTML = lista.map(a => `
+    <tr data-id="${a.id}">
+      <td>${ruteoEscapeHtml(a.nombre)}</td>
+      <td>${a.es_admin ? '<span class="badge badge-purple">Admin</span>' : '<span class="badge badge-gray">Asesor</span>'}</td>
+      <td>${a.activo ? '<span class="badge badge-green">Activo</span>' : '<span class="badge badge-red">Inactivo</span>'}</td>
+      <td><input type="text" class="as-nueva-pass" placeholder="dejar vacío = sin cambio" style="padding:.4rem .6rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.8rem;width:170px"></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm" onclick="guardarAsesor('${a.id}', this)">Guardar contraseña</button>
+        <button class="btn ${a.activo?'btn-danger':'btn-green'} btn-sm" onclick="toggleActivoAsesor('${a.id}', ${!a.activo})">${a.activo?'Desactivar':'Activar'}</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function crearAsesor() {
+  const nombre = document.getElementById('as-nombre').value.trim();
+  const password = document.getElementById('as-password').value;
+  if (!nombre || !password || password.length < 4) { ruteoToast('Nombre y contraseña (mín. 4 caracteres) son obligatorios.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_asesor', { p_nombre: nombre, p_password: password });
+    ruteoToast('Asesor creado ✓');
+    document.getElementById('as-nombre').value = '';
+    document.getElementById('as-password').value = '';
+    await renderAsesores();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function guardarAsesor(id, btn) {
+  const row = btn.closest('tr');
+  const nuevaPass = row.querySelector('.as-nueva-pass').value;
+  if (!nuevaPass) { ruteoToast('Escribe la nueva contraseña primero.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_asesor', { p_asesor_id: id, p_password: nuevaPass });
+    ruteoToast('Contraseña actualizada ✓');
+    row.querySelector('.as-nueva-pass').value = '';
+  } catch (e) { ruteoErr(e); }
+}
+
+async function toggleActivoAsesor(id, nuevoActivo) {
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_asesor', { p_asesor_id: id, p_activo: nuevoActivo });
+    ruteoToast(nuevoActivo ? 'Asesor activado ✓' : 'Asesor desactivado ✓');
+    await renderAsesores();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- CATÁLOGOS ----------
+
+function initCatTabs() {
+  document.querySelectorAll('.cat-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      catActual = btn.dataset.cat;
+      renderCatalogo();
+    });
+  });
+}
+
+async function renderCatalogo() {
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_opciones', { p_categoria: catActual }) || []; }
+  catch (e) { ruteoErr(e); return; }
+  document.getElementById('cat-tabla').innerHTML = lista.map(o => `
+    <tr>
+      <td>${ruteoEscapeHtml(o.nombre)}</td>
+      <td>${o.orden}</td>
+      <td>${o.activo ? '<span class="badge badge-green">Activo</span>' : '<span class="badge badge-red">Inactivo</span>'}</td>
+      <td><button class="btn ${o.activo?'btn-danger':'btn-green'} btn-sm" onclick="toggleActivoOpcion('${o.id}', ${!o.activo})">${o.activo?'Desactivar':'Activar'}</button></td>
+    </tr>`).join('');
+}
+
+async function crearOpcion() {
+  const nombre = document.getElementById('cat-nombre').value.trim();
+  if (!nombre) { ruteoToast('Escribe el nombre de la opción.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_opcion', { p_categoria: catActual, p_nombre: nombre, p_orden: 99 });
+    ruteoToast('Opción agregada ✓');
+    document.getElementById('cat-nombre').value = '';
+    await renderCatalogo();
+  } catch (e) { ruteoErr(e); }
+}
+
+async function toggleActivoOpcion(id, nuevoActivo) {
+  try {
+    await ruteoRpcAuth('rpc_admin_upsert_opcion', { p_id: id, p_activo: nuevoActivo });
+    ruteoToast(nuevoActivo ? 'Opción activada ✓' : 'Opción desactivada ✓');
+    await renderCatalogo();
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- MI CUENTA ----------
+
+async function cambiarPassword() {
+  const actual = document.getElementById('cu-actual').value;
+  const nueva = document.getElementById('cu-nueva').value;
+  const confirmar = document.getElementById('cu-confirmar').value;
+  if (!actual || !nueva) { ruteoToast('Completa todos los campos.', 'err'); return; }
+  if (nueva !== confirmar) { ruteoToast('Las contraseñas nuevas no coinciden.', 'err'); return; }
+  try {
+    await ruteoRpcAuth('rpc_cambiar_password', { p_actual: actual, p_nueva: nueva });
+    ruteoToast('Contraseña actualizada ✓');
+    document.getElementById('cu-actual').value = '';
+    document.getElementById('cu-nueva').value = '';
+    document.getElementById('cu-confirmar').value = '';
+  } catch (e) { ruteoErr(e); }
+}
+
+// ---------- MODAL HELPERS ----------
+function abrirModal(id) { document.getElementById(id).classList.add('show'); }
+function cerrarModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => cerrarModal(btn.dataset.close)));
+
+// ---------- INIT ----------
+initHeader();
+initTabs();
+initCatTabs();
+document.getElementById('btn-as-crear').addEventListener('click', crearAsesor);
+document.getElementById('btn-dash-buscar').addEventListener('click', renderDashboard);
+document.getElementById('btn-cat-crear').addEventListener('click', crearOpcion);
+document.getElementById('btn-cambiar-password').addEventListener('click', cambiarPassword);
+
+(async function start() {
+  if (!sesion) return;
+  await renderAprobaciones();
+})();
+</script>
+</body>
+</html>

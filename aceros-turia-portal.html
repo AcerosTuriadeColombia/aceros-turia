@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#080c14">
+<title>Aceros Turia · Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c14;
+  --surface: #0e1420;
+  --surface2: #141c2e;
+  --accent: #f97316;
+  --accent2: #fb923c;
+  --steel: #94a3b8;
+  --text: #f0f4ff;
+  --text-dim: #4a5568;
+  --text-mid: #8899b0;
+  --border: rgba(255,255,255,0.055);
+  --border2: rgba(255,255,255,0.09);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+html, body {
+  height: 100%;
+  font-family: 'Instrument Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+/* ---- BACKGROUND ---- */
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(249,115,22,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(249,115,22,0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 100%);
+}
+
+.bg-glow-1 {
+  position: absolute;
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(249,115,22,0.08) 0%, transparent 70%);
+  top: -200px; left: 50%;
+  transform: translateX(-50%);
+  animation: breathe 6s ease-in-out infinite;
+}
+
+.bg-glow-2 {
+  position: absolute;
+  width: 400px; height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(148,163,184,0.04) 0%, transparent 70%);
+  bottom: -100px; right: -100px;
+}
+
+@keyframes breathe {
+  0%,100% { transform: translateX(-50%) scale(1); opacity:0.8; }
+  50% { transform: translateX(-50%) scale(1.1); opacity:1; }
+}
+
+/* ---- MAIN ---- */
+.portal {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+/* ---- LOGO ---- */
+.logo-area {
+  text-align: center;
+  margin-bottom: 3rem;
+  animation: fadeUp 0.6s ease both;
+}
+
+.logo-icon {
+  width: 64px; height: 64px;
+  margin: 0 auto 1rem;
+  background: linear-gradient(135deg, rgba(249,115,22,0.15) 0%, rgba(249,115,22,0.05) 100%);
+  border: 1px solid rgba(249,115,22,0.2);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  position: relative;
+}
+
+.logo-icon::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 17px;
+  background: linear-gradient(135deg, rgba(249,115,22,0.3), transparent 60%);
+  mask: linear-gradient(black, black) content-box, linear-gradient(black, black);
+  mask-composite: exclude;
+  padding: 1px;
+}
+
+.logo-wordmark {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 2.4rem;
+  letter-spacing: 6px;
+  color: var(--text);
+  line-height: 1;
+}
+
+.logo-wordmark em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.logo-sub {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+/* ---- CARDS GRID ---- */
+.cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 1rem;
+}
+
+.role-card:nth-child(1) { animation-delay: 0.1s; }
+.role-card:nth-child(2) { animation-delay: 0.15s; }
+.role-card:nth-child(3) { animation-delay: 0.2s; }
+.role-card:nth-child(4) { animation-delay: 0.25s; }
+
+/* ---- ROLE CARD ---- */
+.role-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 18px;
+  padding: 1.75rem 1.25rem;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  animation: fadeUp 0.6s ease both;
+}
+
+.role-card:nth-child(1) { animation-delay: 0.1s; }
+.role-card:nth-child(2) { animation-delay: 0.15s; }
+.role-card:nth-child(3) { animation-delay: 0.2s; }
+.role-card:nth-child(4) { animation-delay: 0.25s; }
+
+.role-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.25s;
+  border-radius: inherit;
+}
+
+.role-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--card-color, rgba(249,115,22,0.4));
+  box-shadow: 0 16px 40px rgba(0,0,0,0.4), 0 0 0 1px var(--card-color, rgba(249,115,22,0.2));
+}
+
+.role-card:hover::before {
+  opacity: 1;
+  background: radial-gradient(ellipse at 50% 0%, var(--card-glow, rgba(249,115,22,0.08)) 0%, transparent 70%);
+}
+
+.role-card:active { transform: translateY(-1px) scale(0.99); }
+
+/* Card colors */
+.card-logistica  { --card-color: rgba(249,115,22,0.35); --card-glow: rgba(249,115,22,0.1); }
+.card-comercial  { --card-color: rgba(96,165,250,0.35);  --card-glow: rgba(96,165,250,0.1); }
+.card-conductor  { --card-color: rgba(34,197,94,0.35);   --card-glow: rgba(34,197,94,0.1); }
+.card-admin      { --card-color: rgba(168,85,247,0.35);  --card-glow: rgba(168,85,247,0.1); }
+
+.card-icon-wrap {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  margin-bottom: 0.25rem;
+  transition: transform 0.25s;
+}
+
+.role-card:hover .card-icon-wrap { transform: scale(1.08); }
+
+.card-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+.card-desc {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.card-arrow {
+  position: absolute;
+  bottom: 1rem; right: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s;
+}
+
+.role-card:hover .card-arrow { opacity: 1; transform: translateX(0); }
+
+/* ---- ADMIN LINK ---- */
+.admin-link {
+  width: 100%;
+  max-width: 480px;
+  animation: fadeUp 0.6s ease 0.4s both;
+}
+
+.admin-card {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.admin-card:hover {
+  border-color: rgba(168,85,247,0.3);
+  background: rgba(168,85,247,0.04);
+}
+
+.admin-icon { font-size: 1rem; }
+.admin-text { flex: 1; }
+.admin-label { font-size: 0.8rem; font-weight: 600; color: var(--text-mid); }
+.admin-desc  { font-size: 0.68rem; color: var(--text-dim); margin-top: 1px; }
+
+/* ---- FOOTER ---- */
+.portal-footer {
+  margin-top: 2.5rem;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  animation: fadeUp 0.6s ease 0.5s both;
+}
+
+.portal-footer span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- DIVIDER ---- */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 480px;
+  margin: 0.5rem 0;
+  animation: fadeUp 0.6s ease 0.35s both;
+}
+
+.divider-line { flex: 1; height: 1px; background: var(--border); }
+.divider-text { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); }
+
+/* ---- ANIMATIONS ---- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- VERSION TAG ---- */
+.version-tag {
+  position: fixed;
+  bottom: 1rem; right: 1rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+
+/* ---- MOBILE ---- */
+@media (max-width: 400px) {
+  .cards-grid { grid-template-columns: 1fr; }
+  .card-full  { grid-column: 1; }
+  .logo-wordmark { font-size: 2rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- BACKGROUND -->
+<div class="bg-layer">
+  <div class="bg-grid"></div>
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+</div>
+
+<!-- PORTAL -->
+<main class="portal">
+
+  <!-- LOGO -->
+  <div class="logo-area">
+    <div class="logo-icon">⚙️</div>
+    <div class="logo-wordmark"><em>Aceros</em> Turia</div>
+    <div class="logo-sub">Portal de acceso · Colombia</div>
+  </div>
+
+  <!-- CARDS PRINCIPALES -->
+  <div class="cards-grid">
+
+    <!-- SUPERVISOR LOGÍSTICA AMAGÁ -->
+    <a class="role-card card-logistica" href="https://acerosturiadecolombia.github.io/aceros-turia/aceros-turia-fase1.html">
+      <div class="card-icon-wrap">🚛</div>
+      <div class="card-label">Supervisor Amagá</div>
+      <div class="card-desc">Programación de rutas · Planta Amagá</div>
+      <span class="card-arrow">→</span>
+    </a>
+
+    <!-- SUPERVISOR LOGÍSTICA MALAMBO -->
+    <a class="role-card" href="https://acerosturiadecolombia.github.io/aceros-turia/aceros-turia-fase1.html" style="--card-color:rgba(96,165,250,0.35);--card-glow:rgba(96,165,250,0.1)">
+      <div class="card-icon-wrap">🚛</div>
+      <div class="card-label">Supervisor Malambo</div>
+      <div class="card-desc">Programación de rutas · Planta Malambo</div>
+      <span class="card-arrow">→</span>
+    </a>
+
+    <!-- VENDEDOR COMERCIAL -->
+    <a class="role-card card-comercial" href="https://acerosturiadecolombia.github.io/aceros-turia/vendedor.html">
+      <div class="card-icon-wrap">📊</div>
+      <div class="card-label">Vendedor</div>
+      <div class="card-desc">Seguimiento de pedidos en tiempo real</div>
+      <span class="card-arrow">→</span>
+    </a>
+
+    <!-- CONDUCTOR -->
+    <a class="role-card card-conductor" href="https://acerosturiadecolombia.github.io/aceros-turia/driver.html">
+      <div class="card-icon-wrap">🏗️</div>
+      <div class="card-label">Conductor</div>
+      <div class="card-desc">Ver mi ruta del día y actualizar entregas</div>
+      <span class="card-arrow">→</span>
+    </a>
+
+    <!-- RUTEO COMERCIAL -->
+    <a class="role-card card-full" href="https://acerosturiadecolombia.github.io/aceros-turia/aceros-turia-ruteo-login.html" style="--card-color:rgba(34,197,94,0.35);--card-glow:rgba(34,197,94,0.1)">
+      <div class="card-icon-wrap">🗺️</div>
+      <div class="card-label">Ruteo comercial</div>
+      <div class="card-desc">Planeación semanal de visitas, aprobación y dashboard</div>
+      <span class="card-arrow">→</span>
+    </a>
+
+  </div>
+
+  <!-- DIVIDER ADMIN -->
+  <div class="divider">
+    <div class="divider-line"></div>
+    <div class="divider-text">Administración</div>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- ADMIN LINK -->
+  <div class="admin-link">
+    <a class="admin-card" href="https://acerosturiadecolombia.github.io/aceros-turia/aceros-turia-admin.html">
+      <span class="admin-icon">🛡️</span>
+      <div class="admin-text">
+        <div class="admin-label">Panel de administración</div>
+        <div class="admin-desc">Gestión de vendedores, conductores y vehículos · Acceso restringido</div>
+      </div>
+      <span style="font-size:0.75rem;color:var(--text-dim)">→</span>
+    </a>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="portal-footer">
+    Aceros Turia de Colombia S.A.S · <span>Amagá, Antioquia</span>
+  </div>
+
+</main>
+
+<div class="version-tag">v1.0</div>
+
+</body>
+</html>
