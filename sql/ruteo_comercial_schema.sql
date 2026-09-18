@@ -165,6 +165,9 @@ create table if not exists visitas (
   creado_en timestamptz not null default now(),
   actualizado_en timestamptz not null default now()
 );
+-- Si Mauricio va a acompañar al asesor en esta visita puntual (se marca
+-- desde el calendario del administrador).
+alter table visitas add column if not exists mauricio_acompana boolean not null default false;
 
 create index if not exists visitas_ruta_idx on visitas (ruta_id);
 create index if not exists visitas_asesor_fecha_idx on visitas (asesor_id, fecha_visita);
@@ -1918,6 +1921,108 @@ end;
 $$;
 
 -- ============================================================================
+-- 10.3. CALENDARIO SEMANAL Y ACOMPAÑAMIENTOS (administrador)
+-- ============================================================================
+
+-- Todas las visitas de una semana (todos los asesores), para armar la
+-- cuadrícula del calendario: filas por día, columnas por asesor.
+create or replace function rpc_admin_calendario_semana(p_token uuid, p_semana_inicio date)
+returns table(
+  visita_id uuid,
+  asesor_id uuid,
+  asesor_nombre text,
+  fecha_visita date,
+  cliente_id uuid,
+  cliente_nombre text,
+  tipo_cliente text,
+  obra_nombre text,
+  motivo_id uuid,
+  estado text,
+  estado_efectivo text,
+  persona_contacto text,
+  comentarios text,
+  resultado_id uuid,
+  motivo_no_visita_id uuid,
+  motivo_cancelacion text,
+  fecha_reprogramada date,
+  mauricio_acompana boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver el calendario.';
+  end if;
+
+  return query
+    select vv.id, vv.asesor_id, a.nombre, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
+           vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.estado, vv.estado_efectivo,
+           vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
+           vv.motivo_cancelacion, vv.fecha_reprogramada, vv.mauricio_acompana
+    from visitas_vista vv
+    join asesores a on a.id = vv.asesor_id
+    where a.es_admin = false
+      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+    order by vv.fecha_visita, a.nombre;
+end;
+$$;
+
+create or replace function rpc_admin_marcar_acompanamiento(p_token uuid, p_visita_id uuid, p_acompana boolean)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede marcar acompañamientos.';
+  end if;
+
+  update visitas set mauricio_acompana = p_acompana, actualizado_en = now() where id = p_visita_id;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Calendario propio de Mauricio: solo las visitas que marcó para acompañar,
+-- de cualquier asesor, en un rango de fechas.
+create or replace function rpc_admin_listar_acompanamientos(p_token uuid, p_desde date, p_hasta date)
+returns table(
+  visita_id uuid, asesor_nombre text, fecha_visita date, cliente_nombre text,
+  tipo_cliente text, obra_nombre text, motivo_id uuid, estado_efectivo text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver esta información.';
+  end if;
+
+  return query
+    select vv.id, a.nombre, vv.fecha_visita, vv.cliente_nombre, vv.tipo_cliente, vv.obra_nombre,
+           vv.motivo_id, vv.estado_efectivo
+    from visitas_vista vv
+    join asesores a on a.id = vv.asesor_id
+    where vv.mauricio_acompana = true
+      and vv.fecha_visita between p_desde and p_hasta
+    order by vv.fecha_visita, a.nombre;
+end;
+$$;
+
+-- ============================================================================
 -- 11. PERMISOS DE EJECUCIÓN (RPC) PARA anon / authenticated
 -- ============================================================================
 
@@ -1955,6 +2060,9 @@ grant execute on function
   rpc_admin_descartar_notificacion(uuid, uuid),
   rpc_admin_listar_clientes_morosos(uuid),
   rpc_admin_resolver_moroso(uuid, uuid),
+  rpc_admin_calendario_semana(uuid, date),
+  rpc_admin_marcar_acompanamiento(uuid, uuid, boolean),
+  rpc_admin_listar_acompanamientos(uuid, date, date),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
   rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),
