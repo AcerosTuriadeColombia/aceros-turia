@@ -1341,6 +1341,102 @@ begin
 end;
 $$;
 
+-- Dashboard personal: cada asesor ve solo sus propios números, nunca los
+-- de los demás (a diferencia de rpc_admin_dashboard, no requiere ser admin).
+create or replace function rpc_mi_dashboard(p_token uuid, p_desde date, p_hasta date)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_programadas bigint;
+  v_visitadas bigint;
+  v_no_realizadas bigint;
+  v_clientes_nuevos bigint;
+  v_obras json;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+
+  select count(*) into v_programadas
+  from visitas_vista
+  where asesor_id = v_sesion.asesor_id and fecha_visita between p_desde and p_hasta;
+
+  select count(*) into v_visitadas
+  from visitas_vista
+  where asesor_id = v_sesion.asesor_id and estado_efectivo = 'visitada'
+    and fecha_visita between p_desde and p_hasta;
+
+  select count(*) into v_no_realizadas
+  from visitas_vista
+  where asesor_id = v_sesion.asesor_id and estado_efectivo in ('cancelada','no_visitada','vencida')
+    and fecha_visita between p_desde and p_hasta;
+
+  select count(*) into v_clientes_nuevos
+  from visitas_vista
+  where asesor_id = v_sesion.asesor_id and cliente_es_nuevo = true
+    and fecha_visita between p_desde and p_hasta;
+
+  select coalesce(json_agg(t), '[]'::json) into v_obras
+  from (
+    select cliente_nombre as constructora, count(distinct obra_nombre) as obras_visitadas,
+           count(*) as visitas
+    from visitas_vista
+    where asesor_id = v_sesion.asesor_id
+      and tipo_cliente = 'Constructor'
+      and obra_nombre is not null
+      and fecha_visita between p_desde and p_hasta
+    group by cliente_nombre
+    order by visitas desc
+  ) t;
+
+  return json_build_object(
+    'programadas', v_programadas,
+    'visitadas', v_visitadas,
+    'no_realizadas', v_no_realizadas,
+    'clientes_nuevos', v_clientes_nuevos,
+    'obras_por_constructora', v_obras
+  );
+end;
+$$;
+
+-- Clientes del propio asesor sin una visita "visitada" en al menos p_dias
+-- días (o nunca visitados) — solo entre los clientes que tiene asignados.
+create or replace function rpc_mis_clientes_sin_visitar(p_token uuid, p_dias int default 30)
+returns table(
+  cliente_id uuid,
+  cliente_nombre text,
+  ultima_visita date,
+  dias_sin_visita int
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+
+  return query
+    select c.id, c.nombre, u.ultima_visita,
+           case when u.ultima_visita is null then null
+                else (fn_hoy_bogota() - u.ultima_visita)::int end
+    from clientes c
+    join cliente_asesores ca on ca.cliente_id = c.id and ca.asesor_id = v_sesion.asesor_id
+    left join lateral (
+      select v.fecha_visita as ultima_visita
+      from visitas v
+      where v.cliente_id = c.id and v.asesor_id = v_sesion.asesor_id and v.estado = 'visitada'
+      order by v.fecha_visita desc
+      limit 1
+    ) u on true
+    where u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias
+    order by u.ultima_visita asc nulls first;
+end;
+$$;
+
 -- ============================================================================
 -- 10.1. CATÁLOGO DE CLIENTES: importación masiva e historial por cliente
 -- ============================================================================
@@ -1581,6 +1677,8 @@ grant execute on function
   rpc_marcar_cancelada(uuid, uuid, text),
   rpc_marcar_reprogramada(uuid, uuid, date),
   rpc_admin_dashboard(uuid, date, date, uuid[]),
+  rpc_mi_dashboard(uuid, date, date),
+  rpc_mis_clientes_sin_visitar(uuid, int),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
   rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),

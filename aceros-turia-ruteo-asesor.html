@@ -6,6 +6,13 @@
 <title>Aceros Turia · Ruteo Comercial</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="aceros-turia-ruteo-common.css">
+<style>
+  .barrow { display:flex; align-items:center; gap:.7rem; margin-bottom:.6rem; }
+  .barrow .barlabel { width:150px; font-size:.78rem; color:var(--text-mid); flex-shrink:0; }
+  .barrow .bartrack { flex:1; background:var(--surface2); border-radius:6px; height:14px; overflow:hidden; }
+  .barrow .barfill { height:100%; border-radius:6px; }
+  .barrow .barval { width:42px; text-align:right; font-size:.78rem; font-weight:700; flex-shrink:0; }
+</style>
 </head>
 <body>
 
@@ -20,6 +27,7 @@
 <nav class="app-tabs">
   <button data-sec="sec-planeacion" class="active">📅 Planeación de ruta</button>
   <button data-sec="sec-visitas">✅ Mis visitas</button>
+  <button data-sec="sec-dashboard">📊 Mi dashboard</button>
   <button data-sec="sec-cuenta">⚙️ Mi cuenta</button>
 </nav>
 
@@ -102,6 +110,53 @@
         </table>
       </div>
       <div class="empty-state" id="vis-empty" style="display:none"><div class="icon">📭</div><p>No hay visitas en este rango de fechas.</p></div>
+    </div>
+  </div>
+
+  <!-- MI DASHBOARD -->
+  <div class="section" id="sec-dashboard">
+    <div class="card">
+      <div class="card-title">🔎 Rango de fechas</div>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="md-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="md-hasta"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-md-buscar">Actualizar</button>
+    </div>
+
+    <div class="stats-row" id="md-stats"></div>
+
+    <div class="card">
+      <div class="card-title">📊 Programadas vs. visitadas vs. no realizadas</div>
+      <div id="md-comparativo"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🏗️ Obras visitadas por constructora</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Constructora</th><th>Obras distintas visitadas</th><th>Visitas totales</th></tr></thead>
+          <tbody id="md-obras"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="md-obras-empty" style="display:none"><div class="icon">🏗️</div><p>Sin visitas a constructoras en este rango.</p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>⏰ Mis clientes sin visitar</span>
+        <span style="display:flex;align-items:center;gap:.5rem">
+          <input type="number" id="md-sv-dias" value="30" min="1" style="width:70px;padding:.4rem .6rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+          <button class="btn btn-outline btn-sm" id="btn-md-sv-buscar">días o más</button>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Última visita</th><th>Días sin visita</th></tr></thead>
+          <tbody id="md-sv-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="md-sv-empty" style="display:none"><div class="icon">✅</div><p>No tienes clientes sin visitar en ese rango.</p></div>
     </div>
   </div>
 
@@ -216,6 +271,7 @@ function initTabs() {
       document.getElementById(btn.dataset.sec).classList.add('active');
       if (btn.dataset.sec === 'sec-planeacion') renderPlaneacion();
       if (btn.dataset.sec === 'sec-visitas') renderMisVisitas();
+      if (btn.dataset.sec === 'sec-dashboard') { renderMiDashboard(); buscarMisClientesSinVisitar(); }
     });
   });
 }
@@ -562,6 +618,62 @@ async function guardarReprogramada() {
   } catch (e) { ruteoErr(e); }
 }
 
+// ---------- MI DASHBOARD ----------
+
+async function renderMiDashboard() {
+  if (!document.getElementById('md-desde').value) {
+    const hoy = new Date();
+    const primero = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    document.getElementById('md-desde').value = primero.toISOString().slice(0,10);
+    document.getElementById('md-hasta').value = ruteoHoyStr();
+  }
+  const desde = document.getElementById('md-desde').value;
+  const hasta = document.getElementById('md-hasta').value;
+
+  let d;
+  try { d = await ruteoRpcAuth('rpc_mi_dashboard', { p_desde: desde, p_hasta: hasta }); }
+  catch (e) { ruteoErr(e); return; }
+  if (!d) return;
+
+  document.getElementById('md-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${d.programadas}</div><div class="stat-label">Programadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.visitadas}</div><div class="stat-label">Visitadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.no_realizadas}</div><div class="stat-label">No realizadas</div></div>
+    <div class="stat-card"><div class="stat-num">${d.clientes_nuevos}</div><div class="stat-label">Clientes nuevos</div></div>`;
+
+  const max = Math.max(d.programadas, 1);
+  document.getElementById('md-comparativo').innerHTML = [
+    ['Programadas', d.programadas, 'var(--blue)'],
+    ['Visitadas', d.visitadas, 'var(--green)'],
+    ['No realizadas', d.no_realizadas, 'var(--red)']
+  ].map(([label, val, color]) => `
+    <div class="barrow">
+      <div class="barlabel">${label}</div>
+      <div class="bartrack"><div class="barfill" style="width:${Math.min(100, val/max*100)}%;background:${color}"></div></div>
+      <div class="barval">${val}</div>
+    </div>`).join('');
+
+  const obras = d.obras_por_constructora || [];
+  document.getElementById('md-obras-empty').style.display = obras.length ? 'none' : 'block';
+  document.getElementById('md-obras').innerHTML = obras.map(o => `
+    <tr><td>${ruteoEscapeHtml(o.constructora)}</td><td>${o.obras_visitadas}</td><td>${o.visitas}</td></tr>`).join('');
+}
+
+async function buscarMisClientesSinVisitar() {
+  const dias = parseInt(document.getElementById('md-sv-dias').value, 10) || 30;
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_mis_clientes_sin_visitar', { p_dias: dias }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('md-sv-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('md-sv-tabla').innerHTML = lista.map(c => `
+    <tr>
+      <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
+      <td>${c.ultima_visita ? ruteoFormatFecha(c.ultima_visita) : '<span class="badge badge-red">Nunca visitado</span>'}</td>
+      <td>${c.dias_sin_visita ?? '—'}</td>
+    </tr>`).join('');
+}
+
 // ---------- MI CUENTA ----------
 
 async function cambiarPassword() {
@@ -604,6 +716,8 @@ document.getElementById('btn-mnv-guardar').addEventListener('click', guardarNoVi
 document.getElementById('btn-mc-guardar').addEventListener('click', guardarCancelada);
 document.getElementById('btn-mr-guardar').addEventListener('click', guardarReprogramada);
 document.getElementById('btn-cambiar-password').addEventListener('click', cambiarPassword);
+document.getElementById('btn-md-buscar').addEventListener('click', () => { renderMiDashboard(); buscarMisClientesSinVisitar(); });
+document.getElementById('btn-md-sv-buscar').addEventListener('click', buscarMisClientesSinVisitar);
 
 (async function start() {
   if (!sesion) return;
