@@ -1433,7 +1433,11 @@ end;
 $$;
 
 -- Clientes sin una visita "visitada" en al menos p_dias días (o nunca visitados).
-create or replace function rpc_admin_clientes_sin_visitar(p_token uuid, p_dias int default 30)
+create or replace function rpc_admin_clientes_sin_visitar(
+  p_token uuid,
+  p_dias int default 30,
+  p_asesor_ids uuid[] default null
+)
 returns table(
   cliente_id uuid,
   cliente_nombre text,
@@ -1467,7 +1471,14 @@ begin
       order by v.fecha_visita desc
       limit 1
     ) u on true
-    where u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias
+    where (u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias)
+      and (
+        p_asesor_ids is null
+        or exists (
+          select 1 from cliente_asesores ca
+          where ca.cliente_id = c.id and ca.asesor_id = any(p_asesor_ids)
+        )
+      )
     order by u.ultima_visita asc nulls first;
 end;
 $$;
@@ -1503,7 +1514,7 @@ grant execute on function
   rpc_admin_dashboard(uuid, date, date, uuid[]),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
-  rpc_admin_clientes_sin_visitar(uuid, int),
+  rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),
   rpc_mis_clientes(uuid),
   rpc_admin_listar_clientes(uuid, text),
   rpc_admin_asignar_cliente(uuid, uuid, uuid),

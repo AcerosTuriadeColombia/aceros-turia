@@ -508,8 +508,9 @@ async function buscarHistorialCliente() {
 
 async function buscarClientesSinVisitar() {
   const dias = parseInt(document.getElementById('sv-dias').value, 10) || 30;
+  const asesorIds = dashAsesoresSel.size ? Array.from(dashAsesoresSel) : null;
   let lista;
-  try { lista = await ruteoRpcAuth('rpc_admin_clientes_sin_visitar', { p_dias: dias }) || []; }
+  try { lista = await ruteoRpcAuth('rpc_admin_clientes_sin_visitar', { p_dias: dias, p_asesor_ids: asesorIds }) || []; }
   catch (e) { ruteoErr(e); return; }
 
   document.getElementById('sv-empty').style.display = lista.length ? 'none' : 'block';
@@ -739,7 +740,7 @@ initHeader();
 initTabs();
 initCatTabs();
 document.getElementById('btn-as-crear').addEventListener('click', crearAsesor);
-document.getElementById('btn-dash-buscar').addEventListener('click', renderDashboard);
+document.getElementById('btn-dash-buscar').addEventListener('click', () => { renderDashboard(); buscarClientesSinVisitar(); });
 document.getElementById('btn-cat-crear').addEventListener('click', crearOpcion);
 document.getElementById('btn-cambiar-password').addEventListener('click', cambiarPassword);
 document.getElementById('btn-hc-buscar').addEventListener('click', buscarHistorialCliente);
