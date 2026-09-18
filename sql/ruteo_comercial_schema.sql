@@ -83,6 +83,29 @@ create table if not exists cliente_asesores (
   primary key (cliente_id, asesor_id)
 );
 
+-- Estado de seguimiento que el asesor le pone a un cliente desde "clientes
+-- sin visitar" (cita programada / moroso / ya no existe), y si el cliente
+-- sigue activo en el catálogo (Mauricio lo desactiva si en efecto ya no existe).
+alter table clientes add column if not exists activo boolean not null default true;
+alter table clientes add column if not exists estado_seguimiento text;
+alter table clientes add column if not exists estado_seguimiento_fecha timestamptz;
+alter table clientes add column if not exists estado_seguimiento_por uuid references asesores(id) on delete set null;
+alter table clientes drop constraint if exists clientes_estado_seguimiento_check;
+alter table clientes add constraint clientes_estado_seguimiento_check
+  check (estado_seguimiento is null or estado_seguimiento in ('cita_programada','moroso','no_existe'));
+
+-- Avisos para el administrador cuando un asesor reporta que un cliente ya
+-- no existe, o lo marca como moroso.
+create table if not exists notificaciones (
+  id uuid primary key default gen_random_uuid(),
+  tipo text not null check (tipo in ('cliente_no_existe','cliente_moroso')),
+  cliente_id uuid references clientes(id) on delete cascade,
+  asesor_id uuid references asesores(id) on delete set null,
+  mensaje text,
+  leida boolean not null default false,
+  creado_en timestamptz not null default now()
+);
+
 -- Catálogos abiertos y editables por el administrador:
 --   'motivo_visita'    -> Venta, Cobranza, Reclamación, Revisión de precios
 --   'resultado_visita' -> Se cotizó, Cliente con stock, ...
@@ -198,8 +221,9 @@ alter table clientes enable row level security;
 alter table obras enable row level security;
 alter table opciones enable row level security;
 alter table cliente_asesores enable row level security;
+alter table notificaciones enable row level security;
 
-revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores from anon, authenticated;
+revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores, notificaciones from anon, authenticated;
 
 -- Catálogos: lectura pública (no sensible), sin escritura directa.
 revoke all on clientes, obras, opciones from anon, authenticated;
@@ -358,6 +382,21 @@ begin
 
   return v_id;
 end;
+$$;
+
+-- Tipo de cliente más reciente con el que se registró una visita a ese
+-- cliente (para reutilizarlo al programar una visita desde "sin visitar",
+-- donde no se vuelve a preguntar el tipo). Si nunca se ha visitado, asume
+-- 'Cliente final' como valor por defecto razonable.
+create or replace function fn_tipo_cliente_reciente(p_cliente_id uuid)
+returns text
+language sql
+stable
+as $$
+  select coalesce(
+    (select tipo_cliente from visitas where cliente_id = p_cliente_id order by creado_en desc limit 1),
+    'Cliente final'
+  );
 $$;
 
 -- ============================================================================
@@ -639,7 +678,7 @@ begin
     select c.id, c.nombre
     from clientes c
     join cliente_asesores ca on ca.cliente_id = c.id
-    where ca.asesor_id = v_sesion.asesor_id
+    where ca.asesor_id = v_sesion.asesor_id and c.activo = true
     order by c.nombre;
 end;
 $$;
@@ -1121,6 +1160,10 @@ begin
     actualizado_en = now()
   where id = p_visita_id;
 
+  -- Una visita real limpia cualquier estado de seguimiento pendiente
+  -- (cita programada / moroso) que se le hubiera puesto a este cliente.
+  update clientes set estado_seguimiento = null where id = v_visita.cliente_id;
+
   insert into auditoria (ruta_id, visita_id, accion, actor_id)
   values (v_visita.ruta_id, p_visita_id, 'marcar_visitada', v_sesion.asesor_id);
 
@@ -1432,8 +1475,97 @@ begin
       order by v.fecha_visita desc
       limit 1
     ) u on true
-    where u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias
+    where c.activo = true
+      and c.estado_seguimiento is null
+      and (u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias)
     order by u.ultima_visita asc nulls first;
+end;
+$$;
+
+-- Acción del asesor sobre una fila de "Mis clientes sin visitar":
+--   - p_fecha_visita (opcional): programa una visita para ese cliente en la
+--     ruta de la semana correspondiente (misma lógica que "visita no
+--     planeada"), sin necesidad de pasar por el formulario de planeación.
+--   - p_estado (opcional): 'cita_programada' | 'moroso' | 'no_existe'.
+--     'moroso' exige p_fecha_visita. 'moroso' y 'no_existe' notifican al
+--     administrador. Al quedar con un estado, el cliente deja de aparecer
+--     en "sin visitar" hasta que alguien lo resuelva (o hasta la próxima
+--     visita real, que limpia el estado automáticamente).
+create or replace function rpc_gestionar_cliente_sin_visitar(
+  p_token uuid,
+  p_cliente_id uuid,
+  p_estado text default null,
+  p_fecha_visita date default null
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_cliente clientes;
+  v_ruta_id uuid;
+  v_tipo_cliente text;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+
+  select * into v_cliente from clientes where id = p_cliente_id;
+  if v_cliente.id is null then
+    raise exception 'Cliente no encontrado.';
+  end if;
+  if not exists (select 1 from cliente_asesores where cliente_id = p_cliente_id and asesor_id = v_sesion.asesor_id) then
+    raise exception 'Este cliente no está asignado a tu cartera.';
+  end if;
+
+  if p_estado is not null and p_estado not in ('cita_programada','moroso','no_existe') then
+    raise exception 'Estado no válido.';
+  end if;
+  if p_estado = 'moroso' and p_fecha_visita is null then
+    raise exception 'Para marcar un cliente como moroso debes indicar la fecha de la próxima visita.';
+  end if;
+  if p_estado is null and p_fecha_visita is null then
+    raise exception 'Indica una fecha de visita, un estado, o ambos.';
+  end if;
+
+  if p_fecha_visita is not null then
+    v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, p_fecha_visita);
+    v_tipo_cliente := fn_tipo_cliente_reciente(p_cliente_id);
+
+    insert into visitas (
+      ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
+      tipo_cliente, fecha_visita, origen, estado
+    ) values (
+      v_ruta_id, v_sesion.asesor_id, p_cliente_id, v_cliente.nombre, false,
+      v_tipo_cliente, p_fecha_visita, 'no_planeada', 'programada'
+    );
+
+    insert into auditoria (ruta_id, accion, actor_id, detalle)
+    values (v_ruta_id, 'programar_desde_sin_visitar', v_sesion.asesor_id, json_build_object('cliente_id', p_cliente_id, 'fecha', p_fecha_visita));
+  end if;
+
+  if p_estado is not null then
+    update clientes set
+      estado_seguimiento = p_estado,
+      estado_seguimiento_fecha = now(),
+      estado_seguimiento_por = v_sesion.asesor_id
+    where id = p_cliente_id;
+
+    if p_estado in ('moroso', 'no_existe') then
+      insert into notificaciones (tipo, cliente_id, asesor_id, mensaje)
+      values (
+        case p_estado when 'moroso' then 'cliente_moroso' else 'cliente_no_existe' end,
+        p_cliente_id,
+        v_sesion.asesor_id,
+        case p_estado
+          when 'moroso' then v_sesion.nombre || ' marcó a ' || v_cliente.nombre || ' como moroso.'
+          else v_sesion.nombre || ' reportó que ' || v_cliente.nombre || ' ya no existe.'
+        end
+      );
+    end if;
+  end if;
+
+  return json_build_object('ok', true);
 end;
 $$;
 
@@ -1635,7 +1767,9 @@ begin
       order by v.fecha_visita desc
       limit 1
     ) u on true
-    where (u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias)
+    where c.activo = true
+      and c.estado_seguimiento is null
+      and (u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias)
       and (
         p_asesor_ids is null
         or exists (
@@ -1644,6 +1778,142 @@ begin
         )
       )
     order by u.ultima_visita asc nulls first;
+end;
+$$;
+
+-- ============================================================================
+-- 10.2. NOTIFICACIONES Y CLIENTES MOROSOS (administrador)
+-- ============================================================================
+
+create or replace function rpc_admin_listar_notificaciones(p_token uuid, p_solo_no_leidas boolean default true)
+returns table(
+  id uuid, tipo text, cliente_id uuid, cliente_nombre text,
+  asesor_nombre text, mensaje text, leida boolean, creado_en timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver las notificaciones.';
+  end if;
+
+  return query
+    select n.id, n.tipo, n.cliente_id, coalesce(c.nombre, '(cliente eliminado)'),
+           a.nombre, n.mensaje, n.leida, n.creado_en
+    from notificaciones n
+    left join clientes c on c.id = n.cliente_id
+    left join asesores a on a.id = n.asesor_id
+    where (not p_solo_no_leidas or n.leida = false)
+    order by n.creado_en desc;
+end;
+$$;
+
+-- El cliente en efecto ya no existe: se desactiva (no se borra el histórico
+-- de rutas/visitas) y se marca leída la notificación.
+create or replace function rpc_admin_eliminar_cliente_reportado(p_token uuid, p_cliente_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede eliminar clientes.';
+  end if;
+
+  update clientes set activo = false where id = p_cliente_id;
+  update notificaciones set leida = true
+    where cliente_id = p_cliente_id and tipo = 'cliente_no_existe' and leida = false;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- El cliente sí existe (falsa alarma): se limpia el estado de seguimiento
+-- para que vuelva a aparecer normalmente en "sin visitar" si corresponde.
+create or replace function rpc_admin_descartar_notificacion(p_token uuid, p_notificacion_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_notif notificaciones;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede resolver notificaciones.';
+  end if;
+
+  select * into v_notif from notificaciones where id = p_notificacion_id;
+  if v_notif.id is null then
+    raise exception 'Notificación no encontrada.';
+  end if;
+
+  if v_notif.tipo = 'cliente_no_existe' and v_notif.cliente_id is not null then
+    update clientes set estado_seguimiento = null where id = v_notif.cliente_id;
+  end if;
+  update notificaciones set leida = true where id = p_notificacion_id;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Clientes marcados como morosos (para la sección del dashboard).
+create or replace function rpc_admin_listar_clientes_morosos(p_token uuid)
+returns table(
+  cliente_id uuid, cliente_nombre text, marcado_en timestamptz, asesor_nombre text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede ver esta información.';
+  end if;
+
+  return query
+    select c.id, c.nombre, c.estado_seguimiento_fecha, a.nombre
+    from clientes c
+    left join asesores a on a.id = c.estado_seguimiento_por
+    where c.estado_seguimiento = 'moroso'
+    order by c.estado_seguimiento_fecha desc;
+end;
+$$;
+
+-- Ya se resolvió la mora (pagó, se puso al día, etc.): limpia el estado.
+create or replace function rpc_admin_resolver_moroso(p_token uuid, p_cliente_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede resolver esto.';
+  end if;
+
+  update clientes set estado_seguimiento = null where id = p_cliente_id and estado_seguimiento = 'moroso';
+  update notificaciones set leida = true
+    where cliente_id = p_cliente_id and tipo = 'cliente_moroso' and leida = false;
+
+  return json_build_object('ok', true);
 end;
 $$;
 
@@ -1679,6 +1949,12 @@ grant execute on function
   rpc_admin_dashboard(uuid, date, date, uuid[]),
   rpc_mi_dashboard(uuid, date, date),
   rpc_mis_clientes_sin_visitar(uuid, int),
+  rpc_gestionar_cliente_sin_visitar(uuid, uuid, text, date),
+  rpc_admin_listar_notificaciones(uuid, boolean),
+  rpc_admin_eliminar_cliente_reportado(uuid, uuid),
+  rpc_admin_descartar_notificacion(uuid, uuid),
+  rpc_admin_listar_clientes_morosos(uuid),
+  rpc_admin_resolver_moroso(uuid, uuid),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
   rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),

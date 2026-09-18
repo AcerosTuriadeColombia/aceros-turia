@@ -150,9 +150,10 @@
           <button class="btn btn-outline btn-sm" id="btn-md-sv-buscar">días o más</button>
         </span>
       </div>
+      <p class="hint" style="margin-bottom:.8rem">Si marcas un cliente como "Moroso" es obligatorio indicar la fecha de la próxima visita. Al guardar un estatus, Mauricio recibe una notificación y el cliente sale de esta lista.</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Cliente</th><th>Última visita</th><th>Días sin visita</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Última visita</th><th>Días sin visita</th><th>Fecha de visita</th><th>Status</th><th></th></tr></thead>
           <tbody id="md-sv-tabla"></tbody>
         </table>
       </div>
@@ -667,11 +668,36 @@ async function buscarMisClientesSinVisitar() {
 
   document.getElementById('md-sv-empty').style.display = lista.length ? 'none' : 'block';
   document.getElementById('md-sv-tabla').innerHTML = lista.map(c => `
-    <tr>
+    <tr data-cliente-id="${c.cliente_id}">
       <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
       <td>${c.ultima_visita ? ruteoFormatFecha(c.ultima_visita) : '<span class="badge badge-red">Nunca visitado</span>'}</td>
       <td>${c.dias_sin_visita ?? '—'}</td>
+      <td><input type="date" class="sv-fecha" style="padding:.35rem .5rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.78rem"></td>
+      <td>
+        <select class="sv-status" style="padding:.35rem .5rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.78rem">
+          <option value="">— Sin cambio —</option>
+          <option value="cita_programada">Cita programada</option>
+          <option value="moroso">Moroso</option>
+          <option value="no_existe">Cliente ya no existe</option>
+        </select>
+      </td>
+      <td><button class="btn btn-primary btn-sm" onclick="guardarSeguimientoCliente('${c.cliente_id}', this)">Guardar</button></td>
     </tr>`).join('');
+}
+
+async function guardarSeguimientoCliente(clienteId, btn) {
+  const row = btn.closest('tr');
+  const fecha = row.querySelector('.sv-fecha').value || null;
+  const estado = row.querySelector('.sv-status').value || null;
+
+  if (!fecha && !estado) { ruteoToast('Indica una fecha de visita, un estatus, o ambos.', 'err'); return; }
+  if (estado === 'moroso' && !fecha) { ruteoToast('Para marcar "Moroso" debes indicar primero la fecha de la próxima visita.', 'err'); return; }
+
+  try {
+    await ruteoRpcAuth('rpc_gestionar_cliente_sin_visitar', { p_cliente_id: clienteId, p_estado: estado, p_fecha_visita: fecha });
+    ruteoToast('Guardado ✓');
+    await buscarMisClientesSinVisitar();
+  } catch (e) { ruteoErr(e); }
 }
 
 // ---------- MI CUENTA ----------
