@@ -530,19 +530,6 @@ async function resolverMoroso(clienteId) {
 let calSemanaInicio = ruteoLunesDeSemana(ruteoHoyStr());
 let calVisitasActuales = [];
 
-function colorCalendario(estadoEfectivo) {
-  if (estadoEfectivo === 'visitada') return 'badge-green';
-  if (['no_visitada', 'cancelada', 'reprogramada'].includes(estadoEfectivo)) return 'badge-yellow';
-  if (estadoEfectivo === 'vencida') return 'badge-red';
-  return 'badge-blue';
-}
-
-function sumarDias(fechaStr, n) {
-  const d = new Date(fechaStr + 'T00:00:00');
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
 async function renderCalendario() {
   document.getElementById('cal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicio)}`;
   if (!dashAsesores.length) await cargarAsesoresChips();
@@ -559,7 +546,7 @@ async function renderCalendario() {
   const filas = Array.from(asesoresMap.entries());
 
   const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
-  const fechasSemana = dias.map((_, i) => sumarDias(calSemanaInicio, i));
+  const fechasSemana = dias.map((_, i) => ruteoSumarDias(calSemanaInicio, i));
   const tabla = document.getElementById('cal-tabla');
 
   let thead = '<thead><tr><th>Asesor</th>' +
@@ -572,7 +559,7 @@ async function renderCalendario() {
     for (const fecha of fechasSemana) {
       const delDia = visitas.filter(v => v.asesor_id === asesorId && v.fecha_visita === fecha);
       const chips = delDia.map(v => `
-        <div class="badge ${colorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+        <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
              onclick="abrirDetalleVisita('${v.visita_id}')">
           ${ruteoEscapeHtml(v.cliente_nombre)}${v.mauricio_acompana ? ' 👤' : ''}
         </div>`).join('');
@@ -1071,8 +1058,8 @@ document.getElementById('imp-archivo').addEventListener('change', e => {
 document.getElementById('btn-ca-buscar').addEventListener('click', buscarClientesAsignados);
 document.getElementById('ca-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarClientesAsignados(); });
 document.getElementById('notif-solo-no-leidas').addEventListener('change', renderNotificaciones);
-document.getElementById('btn-cal-anterior').addEventListener('click', () => { calSemanaInicio = sumarDias(calSemanaInicio, -7); renderCalendario(); });
-document.getElementById('btn-cal-siguiente').addEventListener('click', () => { calSemanaInicio = sumarDias(calSemanaInicio, 7); renderCalendario(); });
+document.getElementById('btn-cal-anterior').addEventListener('click', () => { calSemanaInicio = ruteoSumarDias(calSemanaInicio, -7); renderCalendario(); });
+document.getElementById('btn-cal-siguiente').addEventListener('click', () => { calSemanaInicio = ruteoSumarDias(calSemanaInicio, 7); renderCalendario(); });
 document.getElementById('btn-acomp-buscar').addEventListener('click', buscarAcompanamientos);
 
 (async function start() {

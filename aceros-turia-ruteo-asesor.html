@@ -93,10 +93,42 @@
   <!-- MIS VISITAS (ejecución) -->
   <div class="section" id="sec-visitas">
     <div class="card">
+      <div class="card-title">🗓️ Mi calendario semanal</div>
+      <div class="card-title" style="margin-bottom:.8rem">
+        <span style="display:flex;align-items:center;gap:.6rem">
+          <button class="btn btn-outline btn-sm" id="btn-mcal-anterior">◀ Anterior</button>
+          <b id="mcal-semana-label" style="font-size:.85rem"></b>
+          <button class="btn btn-outline btn-sm" id="btn-mcal-siguiente">Siguiente ▶</button>
+        </span>
+      </div>
+      <div class="pill-row" style="margin-bottom:1rem">
+        <span class="badge badge-blue">Programada</span>
+        <span class="badge badge-green">Visitada</span>
+        <span class="badge badge-yellow">Con novedad</span>
+        <span class="badge badge-red">No realizada / vencida</span>
+      </div>
+      <div class="table-wrap">
+        <table id="mcal-tabla" style="min-width:700px"></table>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">🔎 Filtrar</div>
       <div class="form-row">
         <div class="field"><label>Desde</label><input type="date" id="vf-desde"></div>
         <div class="field"><label>Hasta</label><input type="date" id="vf-hasta"></div>
+      </div>
+      <div class="field">
+        <label>Estado</label>
+        <select id="vf-estado">
+          <option value="">Todos</option>
+          <option value="programada">Programada</option>
+          <option value="vencida">Vencida</option>
+          <option value="visitada">Visitada</option>
+          <option value="no_visitada">No visitada</option>
+          <option value="cancelada">Cancelada</option>
+          <option value="reprogramada">Reprogramada</option>
+        </select>
       </div>
       <button class="btn btn-primary btn-sm" id="btn-vf-buscar">Buscar</button>
     </div>
@@ -173,6 +205,15 @@
   </div>
 
 </main>
+
+<!-- MODAL: detalle de visita (desde el calendario) -->
+<div class="modal-overlay" id="modal-visita-info">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">Detalle de la visita</div>
+    <div id="vi-contenido" style="font-size:.88rem;line-height:1.7"></div>
+    <div class="modal-actions" id="vi-acciones" style="flex-wrap:wrap"></div>
+  </div>
+</div>
 
 <!-- MODAL: visita no planeada -->
 <div class="modal-overlay" id="modal-no-planeada">
@@ -271,7 +312,7 @@ function initTabs() {
       btn.classList.add('active');
       document.getElementById(btn.dataset.sec).classList.add('active');
       if (btn.dataset.sec === 'sec-planeacion') renderPlaneacion();
-      if (btn.dataset.sec === 'sec-visitas') renderMisVisitas();
+      if (btn.dataset.sec === 'sec-visitas') { renderMisVisitas(); renderMiCalendario(); }
       if (btn.dataset.sec === 'sec-dashboard') { renderMiDashboard(); buscarMisClientesSinVisitar(); }
     });
   });
@@ -498,7 +539,7 @@ async function guardarNoPlaneada() {
     cerrarModal('modal-no-planeada');
     await cargarCatalogos();
     await renderPlaneacion();
-    await renderMisVisitas();
+    await renderMisVisitas(); await renderMiCalendario();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -520,6 +561,9 @@ async function renderMisVisitas() {
   let visitas;
   try { visitas = await ruteoRpcAuth('rpc_listar_mis_visitas', { p_desde: desde, p_hasta: hasta }) || []; }
   catch (e) { ruteoErr(e); return; }
+
+  const filtroEstado = document.getElementById('vf-estado').value;
+  if (filtroEstado) visitas = visitas.filter(v => v.estado_efectivo === filtroEstado);
 
   window._misVisitas = visitas;
   const tbody = document.getElementById('vis-tabla');
@@ -547,6 +591,91 @@ async function renderMisVisitas() {
   }).join('');
 }
 
+// ---------- MI CALENDARIO SEMANAL ----------
+
+let calSemanaInicioAsesor = ruteoLunesDeSemana(ruteoHoyStr());
+let calVisitasAsesor = [];
+
+async function renderMiCalendario() {
+  document.getElementById('mcal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicioAsesor)}`;
+
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_mi_calendario_semana', { p_semana_inicio: calSemanaInicioAsesor }) || []; }
+  catch (e) { ruteoErr(e); return; }
+  calVisitasAsesor = visitas;
+
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
+  const fechasSemana = dias.map((_, i) => ruteoSumarDias(calSemanaInicioAsesor, i));
+  const tabla = document.getElementById('mcal-tabla');
+
+  let thead = '<thead><tr>' +
+    dias.map((dia, i) => `<th style="white-space:nowrap">${dia}<br><span class="muted" style="font-weight:400">${ruteoFormatFecha(fechasSemana[i])}</span></th>`).join('') +
+    '</tr></thead>';
+
+  let tbody = '<tbody><tr>';
+  for (const fecha of fechasSemana) {
+    const delDia = visitas.filter(v => v.fecha_visita === fecha);
+    const chips = delDia.map(v => `
+      <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+           onclick="abrirDetalleVisitaAsesor('${v.visita_id}')">
+        ${ruteoEscapeHtml(v.cliente_nombre)}
+      </div>`).join('');
+    tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
+  }
+  tbody += '</tr></tbody>';
+
+  tabla.innerHTML = thead + tbody;
+}
+
+function abrirDetalleVisitaAsesor(visitaId) {
+  const v = calVisitasAsesor.find(x => x.visita_id === visitaId);
+  if (!v) return;
+
+  const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+
+  let detalle = `
+    <div><b>Cliente:</b> ${ruteoEscapeHtml(v.cliente_nombre)}</div>
+    <div><b>Fecha:</b> ${ruteoFormatFecha(v.fecha_visita)}</div>
+    <div><b>Tipo de cliente:</b> ${ruteoEscapeHtml(v.tipo_cliente)}</div>
+    ${v.obra_nombre ? `<div><b>Obra:</b> ${ruteoEscapeHtml(v.obra_nombre)}</div>` : ''}
+    <div><b>Motivo:</b> ${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</div>
+    <div><b>Estado:</b> ${ruteoEstadoBadge(v.estado_efectivo)}</div>`;
+
+  if (v.estado === 'visitada') {
+    const resultado = [...opciones.resultado_visita].find(o => o.id === v.resultado_id);
+    detalle += `
+      <hr style="border-color:var(--border2);margin:.6rem 0">
+      <div><b>Persona que atendió:</b> ${ruteoEscapeHtml(v.persona_contacto || '—')}</div>
+      <div><b>Resultado:</b> ${resultado ? ruteoEscapeHtml(resultado.nombre) : '—'}</div>
+      <div><b>Comentarios:</b> ${ruteoEscapeHtml(v.comentarios || '—')}</div>`;
+  } else if (v.estado === 'no_visitada') {
+    const motivoNv = [...opciones.motivo_no_visita].find(o => o.id === v.motivo_no_visita_id);
+    detalle += `<div><b>Motivo de no visita:</b> ${motivoNv ? ruteoEscapeHtml(motivoNv.nombre) : '—'}</div>`;
+  } else if (v.estado === 'cancelada') {
+    detalle += `<div><b>Motivo de cancelación:</b> ${ruteoEscapeHtml(v.motivo_cancelacion || '—')}</div>`;
+  } else if (v.estado === 'reprogramada') {
+    detalle += `<div><b>Reprogramada para:</b> ${ruteoFormatFecha(v.fecha_reprogramada)}</div>`;
+  }
+
+  document.getElementById('vi-contenido').innerHTML = detalle;
+
+  const acciones = document.getElementById('vi-acciones');
+  if (v.estado === 'programada') {
+    acciones.innerHTML = `
+      <button class="btn btn-green btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalVisitada('${v.visita_id}')">Marcar visitada</button>
+      <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalNoVisitada('${v.visita_id}')">No visitada</button>
+      <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalCancelada('${v.visita_id}')">Cancelar</button>
+      <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalReprogramada('${v.visita_id}')">Reprogramar</button>
+      <button class="btn btn-outline" data-close="modal-visita-info">Cerrar</button>`;
+  } else {
+    acciones.innerHTML = `<button class="btn btn-outline" data-close="modal-visita-info">Cerrar</button>`;
+  }
+  // los botones nuevos con data-close no quedaron enlazados en la carga inicial
+  acciones.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => cerrarModal(btn.dataset.close)));
+
+  abrirModal('modal-visita-info');
+}
+
 function abrirModalVisitada(id) {
   modalTargetVisitaId = id;
   document.getElementById('mv-persona').value = '';
@@ -571,7 +700,7 @@ async function guardarVisitada() {
     });
     ruteoToast('Visita registrada ✓');
     cerrarModal('modal-visitada');
-    await renderMisVisitas();
+    await renderMisVisitas(); await renderMiCalendario();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -585,7 +714,7 @@ async function guardarNoVisitada() {
     await ruteoRpcAuth('rpc_marcar_no_visitada', { p_visita_id: modalTargetVisitaId, p_motivo_no_visita_id: document.getElementById('mnv-motivo').value || null });
     ruteoToast('Registrado como no visitada ✓');
     cerrarModal('modal-no-visitada');
-    await renderMisVisitas();
+    await renderMisVisitas(); await renderMiCalendario();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -599,7 +728,7 @@ async function guardarCancelada() {
     await ruteoRpcAuth('rpc_marcar_cancelada', { p_visita_id: modalTargetVisitaId, p_motivo: document.getElementById('mc-motivo').value.trim() || null });
     ruteoToast('Visita cancelada ✓');
     cerrarModal('modal-cancelada');
-    await renderMisVisitas();
+    await renderMisVisitas(); await renderMiCalendario();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -615,7 +744,7 @@ async function guardarReprogramada() {
     await ruteoRpcAuth('rpc_marcar_reprogramada', { p_visita_id: modalTargetVisitaId, p_nueva_fecha: fecha });
     ruteoToast('Visita reprogramada ✓');
     cerrarModal('modal-reprogramada');
-    await renderMisVisitas();
+    await renderMisVisitas(); await renderMiCalendario();
   } catch (e) { ruteoErr(e); }
 }
 
@@ -737,6 +866,9 @@ document.getElementById('btn-pl-cancelar-edicion').addEventListener('click', can
 document.getElementById('btn-abrir-no-planeada').addEventListener('click', abrirModalNoPlaneada);
 document.getElementById('btn-np-guardar').addEventListener('click', guardarNoPlaneada);
 document.getElementById('btn-vf-buscar').addEventListener('click', renderMisVisitas);
+document.getElementById('vf-estado').addEventListener('change', renderMisVisitas);
+document.getElementById('btn-mcal-anterior').addEventListener('click', () => { calSemanaInicioAsesor = ruteoSumarDias(calSemanaInicioAsesor, -7); renderMiCalendario(); });
+document.getElementById('btn-mcal-siguiente').addEventListener('click', () => { calSemanaInicioAsesor = ruteoSumarDias(calSemanaInicioAsesor, 7); renderMiCalendario(); });
 document.getElementById('btn-mv-guardar').addEventListener('click', guardarVisitada);
 document.getElementById('btn-mnv-guardar').addEventListener('click', guardarNoVisitada);
 document.getElementById('btn-mc-guardar').addEventListener('click', guardarCancelada);
