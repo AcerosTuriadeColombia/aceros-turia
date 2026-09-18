@@ -200,7 +200,16 @@ alter table auditoria add constraint auditoria_actor_id_fkey
 
 -- Vista con el estado "efectivo": una visita programada cuya fecha ya pasó
 -- y nunca se marcó, se reporta como 'vencida' sin necesidad de un job.
-create or replace view visitas_vista as
+--
+-- Se recrea con DROP + CREATE (no CREATE OR REPLACE): como usa "v.*", cada
+-- columna nueva que se agregue a "visitas" (ej. mauricio_acompana) corre
+-- la posición de "estado_efectivo", y CREATE OR REPLACE VIEW no permite
+-- cambiar el nombre de una columna ya existente en esa posición. DROP+CREATE
+-- no tiene esa restricción, así que esto queda a prueba de columnas nuevas
+-- en el futuro. CASCADE recrea (más abajo en este mismo archivo) las
+-- funciones que dependen de esta vista.
+drop view if exists visitas_vista cascade;
+create view visitas_vista as
 select
   v.*,
   case
