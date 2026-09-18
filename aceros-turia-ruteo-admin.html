@@ -294,7 +294,7 @@ function initTabs() {
       btn.classList.add('active');
       document.getElementById(btn.dataset.sec).classList.add('active');
       if (btn.dataset.sec === 'sec-aprobaciones') renderAprobaciones();
-      if (btn.dataset.sec === 'sec-dashboard') { renderDashboard(); buscarClientesSinVisitar(); }
+      if (btn.dataset.sec === 'sec-dashboard') { cargarAsesoresChips().then(() => { renderDashboard(); buscarClientesSinVisitar(); }); }
       if (btn.dataset.sec === 'sec-asesores') renderAsesores();
       if (btn.dataset.sec === 'sec-clientes') { poblarSelectAsesorImportar(); buscarClientesAsignados(); }
       if (btn.dataset.sec === 'sec-catalogos') renderCatalogo();
@@ -398,7 +398,8 @@ document.getElementById('btn-rd-aprobar').addEventListener('click', async () => 
 async function cargarAsesoresChips() {
   try {
     const lista = await ruteoRpcAuth('rpc_admin_listar_asesores') || [];
-    dashAsesores = lista.filter(a => !a.es_admin);
+    dashAsesores = lista.filter(a => !a.es_admin && a.activo);
+    dashAsesoresSel.clear(); // los chips se reconstruyen: no dejar seleccionado un id que ya no se muestra
     const cont = document.getElementById('dash-asesores-chips');
     cont.innerHTML = `<span class="chip active" data-id="todos">Todos</span>` +
       dashAsesores.map(a => `<span class="chip" data-id="${a.id}">${ruteoEscapeHtml(a.nombre)}</span>`).join('');
