@@ -558,7 +558,7 @@ async function renderCalendario() {
   visitas.forEach(v => { if (!asesoresMap.has(v.asesor_id)) asesoresMap.set(v.asesor_id, v.asesor_nombre); });
   const filas = Array.from(asesoresMap.entries());
 
-  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const fechasSemana = dias.map((_, i) => sumarDias(calSemanaInicio, i));
   const tabla = document.getElementById('cal-tabla');
 
