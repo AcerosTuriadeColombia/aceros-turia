@@ -28,6 +28,7 @@
 <nav class="app-tabs">
   <button data-sec="sec-aprobaciones" class="active">📨 Aprobaciones</button>
   <button data-sec="sec-notificaciones">🔔 Notificaciones <span id="notif-badge" style="display:none"></span></button>
+  <button data-sec="sec-calendario">🗓️ Calendario</button>
   <button data-sec="sec-dashboard">📊 Dashboard</button>
   <button data-sec="sec-asesores">👥 Asesores</button>
   <button data-sec="sec-clientes">🏢 Clientes</button>
@@ -77,6 +78,46 @@
         </table>
       </div>
       <div class="empty-state" id="notif-empty" style="display:none"><div class="icon">🔔</div><p>No hay notificaciones pendientes.</p></div>
+    </div>
+  </div>
+
+  <!-- CALENDARIO -->
+  <div class="section" id="sec-calendario">
+    <div class="card">
+      <div class="card-title">
+        <span>🗓️ Calendario semanal por asesor</span>
+        <span style="display:flex;align-items:center;gap:.6rem">
+          <button class="btn btn-outline btn-sm" id="btn-cal-anterior">◀ Anterior</button>
+          <b id="cal-semana-label" style="font-size:.85rem"></b>
+          <button class="btn btn-outline btn-sm" id="btn-cal-siguiente">Siguiente ▶</button>
+        </span>
+      </div>
+      <div class="pill-row" style="margin-bottom:1rem">
+        <span class="badge badge-blue">Programada</span>
+        <span class="badge badge-green">Visitada</span>
+        <span class="badge badge-yellow">Con novedad</span>
+        <span class="badge badge-red">No realizada / vencida</span>
+      </div>
+      <div class="table-wrap">
+        <table id="cal-tabla" style="min-width:900px"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📌 Acompañamientos de Mauricio</div>
+      <p class="hint" style="margin-bottom:.8rem">Visitas que marcaste para acompañar al asesor, de cualquier semana.</p>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="acomp-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="acomp-hasta"></div>
+      </div>
+      <button class="btn btn-outline btn-sm" id="btn-acomp-buscar">Buscar</button>
+      <div class="table-wrap" style="margin-top:1rem">
+        <table>
+          <thead><tr><th>Fecha</th><th>Asesor</th><th>Cliente</th><th>Tipo</th><th>Motivo</th><th>Estado</th></tr></thead>
+          <tbody id="acomp-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="acomp-empty" style="display:none"><div class="icon">📌</div><p>No tienes acompañamientos programados en este rango.</p></div>
     </div>
   </div>
 
@@ -275,6 +316,23 @@
   </div>
 </div>
 
+<!-- MODAL: detalle de una visita (desde el calendario) -->
+<div class="modal-overlay" id="modal-visita-detalle">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title">Detalle de la visita</div>
+    <div id="vd-contenido" style="font-size:.88rem;line-height:1.7"></div>
+    <div class="field" style="margin-top:1rem">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="vd-acompana" style="width:auto">
+        Mauricio va a acompañar esta visita
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" data-close="modal-visita-detalle">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script src="aceros-turia-ruteo-common.js"></script>
@@ -326,6 +384,7 @@ function initTabs() {
       document.getElementById(btn.dataset.sec).classList.add('active');
       if (btn.dataset.sec === 'sec-aprobaciones') renderAprobaciones();
       if (btn.dataset.sec === 'sec-notificaciones') renderNotificaciones();
+      if (btn.dataset.sec === 'sec-calendario') { renderCalendario(); buscarAcompanamientos(); }
       if (btn.dataset.sec === 'sec-dashboard') { cargarAsesoresChips().then(() => { renderDashboard(); buscarClientesSinVisitar(); }); renderMorosos(); }
       if (btn.dataset.sec === 'sec-asesores') renderAsesores();
       if (btn.dataset.sec === 'sec-clientes') { poblarSelectAsesorImportar(); buscarClientesAsignados(); }
@@ -464,6 +523,130 @@ async function resolverMoroso(clienteId) {
     await renderMorosos();
     await actualizarBadgeNotificaciones();
   } catch (e) { ruteoErr(e); }
+}
+
+// ---------- CALENDARIO ----------
+
+let calSemanaInicio = ruteoLunesDeSemana(ruteoHoyStr());
+let calVisitasActuales = [];
+
+function colorCalendario(estadoEfectivo) {
+  if (estadoEfectivo === 'visitada') return 'badge-green';
+  if (['no_visitada', 'cancelada', 'reprogramada'].includes(estadoEfectivo)) return 'badge-yellow';
+  if (estadoEfectivo === 'vencida') return 'badge-red';
+  return 'badge-blue';
+}
+
+function sumarDias(fechaStr, n) {
+  const d = new Date(fechaStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+async function renderCalendario() {
+  document.getElementById('cal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicio)}`;
+  if (!dashAsesores.length) await cargarAsesoresChips();
+
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_admin_calendario_semana', { p_semana_inicio: calSemanaInicio }) || []; }
+  catch (e) { ruteoErr(e); return; }
+  calVisitasActuales = visitas;
+
+  // Columnas: todos los asesores activos, más cualquier otro que aparezca
+  // en las visitas de esta semana aunque ya no esté activo.
+  const asesoresMap = new Map(dashAsesores.map(a => [a.id, a.nombre]));
+  visitas.forEach(v => { if (!asesoresMap.has(v.asesor_id)) asesoresMap.set(v.asesor_id, v.asesor_nombre); });
+  const columnas = Array.from(asesoresMap.entries());
+
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const tabla = document.getElementById('cal-tabla');
+
+  let thead = '<thead><tr><th>Día</th>' + columnas.map(([, nombre]) => `<th>${ruteoEscapeHtml(nombre)}</th>`).join('') + '</tr></thead>';
+
+  let tbody = '<tbody>';
+  for (let i = 0; i < 7; i++) {
+    const fecha = sumarDias(calSemanaInicio, i);
+    tbody += `<tr><td style="white-space:nowrap"><b>${dias[i]}</b><br><span class="muted">${ruteoFormatFecha(fecha)}</span></td>`;
+    for (const [asesorId] of columnas) {
+      const delDia = visitas.filter(v => v.asesor_id === asesorId && v.fecha_visita === fecha);
+      const chips = delDia.map(v => `
+        <div class="badge ${colorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+             onclick="abrirDetalleVisita('${v.visita_id}')">
+          ${ruteoEscapeHtml(v.cliente_nombre)}${v.mauricio_acompana ? ' 👤' : ''}
+        </div>`).join('');
+      tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
+    }
+    tbody += '</tr>';
+  }
+  tbody += '</tbody>';
+
+  tabla.innerHTML = thead + tbody;
+}
+
+function abrirDetalleVisita(visitaId) {
+  const v = calVisitasActuales.find(x => x.visita_id === visitaId);
+  if (!v) return;
+
+  let detalle = `
+    <div><b>Cliente:</b> ${ruteoEscapeHtml(v.cliente_nombre)}</div>
+    <div><b>Asesor:</b> ${ruteoEscapeHtml(v.asesor_nombre)}</div>
+    <div><b>Fecha:</b> ${ruteoFormatFecha(v.fecha_visita)}</div>
+    <div><b>Tipo de cliente:</b> ${ruteoEscapeHtml(v.tipo_cliente)}</div>
+    ${v.obra_nombre ? `<div><b>Obra:</b> ${ruteoEscapeHtml(v.obra_nombre)}</div>` : ''}
+    <div><b>Motivo:</b> ${ruteoEscapeHtml(nombreOpcion('motivo_visita', v.motivo_id) || '—')}</div>
+    <div><b>Estado:</b> ${ruteoEstadoBadge(v.estado_efectivo)}</div>`;
+
+  if (v.estado === 'visitada') {
+    detalle += `
+      <hr style="border-color:var(--border2);margin:.6rem 0">
+      <div><b>Persona que atendió:</b> ${ruteoEscapeHtml(v.persona_contacto || '—')}</div>
+      <div><b>Resultado:</b> ${ruteoEscapeHtml(nombreOpcion('resultado_visita', v.resultado_id) || '—')}</div>
+      <div><b>Comentarios:</b> ${ruteoEscapeHtml(v.comentarios || '—')}</div>`;
+  } else if (v.estado === 'no_visitada') {
+    detalle += `<div><b>Motivo de no visita:</b> ${ruteoEscapeHtml(nombreOpcion('motivo_no_visita', v.motivo_no_visita_id) || '—')}</div>`;
+  } else if (v.estado === 'cancelada') {
+    detalle += `<div><b>Motivo de cancelación:</b> ${ruteoEscapeHtml(v.motivo_cancelacion || '—')}</div>`;
+  } else if (v.estado === 'reprogramada') {
+    detalle += `<div><b>Reprogramada para:</b> ${ruteoFormatFecha(v.fecha_reprogramada)}</div>`;
+  }
+
+  document.getElementById('vd-contenido').innerHTML = detalle;
+  const check = document.getElementById('vd-acompana');
+  check.checked = !!v.mauricio_acompana;
+  check.onchange = async () => {
+    try {
+      await ruteoRpcAuth('rpc_admin_marcar_acompanamiento', { p_visita_id: visitaId, p_acompana: check.checked });
+      v.mauricio_acompana = check.checked;
+      ruteoToast(check.checked ? 'Marcado como acompañamiento ✓' : 'Acompañamiento quitado ✓');
+      await renderCalendario();
+    } catch (e) { ruteoErr(e); check.checked = !check.checked; }
+  };
+  abrirModal('modal-visita-detalle');
+}
+
+async function buscarAcompanamientos() {
+  if (!document.getElementById('acomp-desde').value) {
+    document.getElementById('acomp-desde').value = ruteoHoyStr();
+    const d = new Date(); d.setDate(d.getDate() + 30);
+    document.getElementById('acomp-hasta').value = d.toISOString().slice(0, 10);
+  }
+  const desde = document.getElementById('acomp-desde').value;
+  const hasta = document.getElementById('acomp-hasta').value;
+
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_admin_listar_acompanamientos', { p_desde: desde, p_hasta: hasta }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('acomp-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('acomp-tabla').innerHTML = lista.map(v => `
+    <tr>
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.asesor_nombre)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}</td>
+      <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoEscapeHtml(nombreOpcion('motivo_visita', v.motivo_id) || '—')}</td>
+      <td>${ruteoEstadoBadge(v.estado_efectivo)}</td>
+    </tr>`).join('');
 }
 
 async function verRutaDetalle(rutaId, asesorNombre, semanaInicio, puedeAprobar) {
@@ -886,6 +1069,9 @@ document.getElementById('imp-archivo').addEventListener('change', e => {
 document.getElementById('btn-ca-buscar').addEventListener('click', buscarClientesAsignados);
 document.getElementById('ca-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarClientesAsignados(); });
 document.getElementById('notif-solo-no-leidas').addEventListener('change', renderNotificaciones);
+document.getElementById('btn-cal-anterior').addEventListener('click', () => { calSemanaInicio = sumarDias(calSemanaInicio, -7); renderCalendario(); });
+document.getElementById('btn-cal-siguiente').addEventListener('click', () => { calSemanaInicio = sumarDias(calSemanaInicio, 7); renderCalendario(); });
+document.getElementById('btn-acomp-buscar').addEventListener('click', buscarAcompanamientos);
 
 (async function start() {
   if (!sesion) return;
