@@ -52,7 +52,7 @@
       <div class="card-title">🗺️ Historial de rutas</div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Asesor</th><th>Semana</th><th>Estado</th><th>Aprobada</th><th># Visitas</th></tr></thead>
+          <thead><tr><th>Asesor</th><th>Semana</th><th>Estado</th><th>Aprobada</th><th># Visitas</th><th>Acciones</th></tr></thead>
           <tbody id="hist-tabla"></tbody>
         </table>
       </div>
@@ -163,7 +163,7 @@
     <div class="modal-title" id="rd-titulo">Detalle de la ruta</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Origen</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Origen</th><th>Acciones</th></tr></thead>
         <tbody id="rd-tabla"></tbody>
       </table>
     </div>
@@ -184,6 +184,9 @@ let dashAsesores = [];
 let dashAsesoresSel = new Set();
 let catActual = 'motivo_visita';
 let rdRutaId = null;
+let rdAsesorNombre = null;
+let rdSemanaInicio = null;
+let rdPuedeAprobar = false;
 
 function initHeader() {
   document.getElementById('hdr-nombre').innerHTML = `<b>${ruteoEscapeHtml(sesion.nombre)}</b>`;
@@ -238,6 +241,7 @@ async function renderAprobaciones() {
       <td>${estadoRutaBadge(r.estado)}</td>
       <td>${r.aprobada_en ? new Date(r.aprobada_en).toLocaleString('es-CO') : '—'}</td>
       <td>${r.total_visitas}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="verRutaDetalle('${r.id}', '${ruteoEscapeHtml(r.asesor_nombre)}', '${r.semana_inicio}', ${r.estado === 'enviada'})">Ver</button></td>
     </tr>`).join('');
 }
 
@@ -249,9 +253,18 @@ function estadoRutaBadge(estado) {
 
 async function verRutaDetalle(rutaId, asesorNombre, semanaInicio, puedeAprobar) {
   rdRutaId = rutaId;
-  document.getElementById('rd-titulo').textContent = `${asesorNombre} — Semana ${ruteoRangoSemanaLabel(semanaInicio)}`;
+  rdAsesorNombre = asesorNombre;
+  rdSemanaInicio = semanaInicio;
+  rdPuedeAprobar = puedeAprobar;
+  document.getElementById('btn-rd-aprobar').style.display = puedeAprobar ? '' : 'none';
+  await cargarDetalleVisitas();
+  abrirModal('modal-ruta-detalle');
+}
+
+async function cargarDetalleVisitas() {
+  document.getElementById('rd-titulo').textContent = `${rdAsesorNombre} — Semana ${ruteoRangoSemanaLabel(rdSemanaInicio)}`;
   let visitas;
-  try { visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: rutaId }) || []; }
+  try { visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: rdRutaId }) || []; }
   catch (e) { ruteoErr(e); return; }
 
   document.getElementById('rd-tabla').innerHTML = visitas.map(v => `
@@ -261,10 +274,18 @@ async function verRutaDetalle(rutaId, asesorNombre, semanaInicio, puedeAprobar) 
       <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
       <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
       <td>${ruteoOrigenBadge(v.origen)}</td>
-    </tr>`).join('');
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarVisitaAdmin('${v.id}')">Eliminar</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">Sin visitas.</td></tr>';
+}
 
-  document.getElementById('btn-rd-aprobar').style.display = puedeAprobar ? '' : 'none';
-  abrirModal('modal-ruta-detalle');
+async function eliminarVisitaAdmin(visitaId) {
+  if (!confirm('¿Eliminar esta visita? Esta acción no se puede deshacer.')) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_eliminar_visita', { p_visita_id: visitaId });
+    ruteoToast('Visita eliminada ✓');
+    await cargarDetalleVisitas();
+    await renderAprobaciones();
+  } catch (e) { ruteoErr(e); }
 }
 
 document.getElementById('btn-rd-aprobar').addEventListener('click', async () => {
