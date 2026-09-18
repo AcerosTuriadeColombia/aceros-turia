@@ -552,22 +552,24 @@ async function renderCalendario() {
   catch (e) { ruteoErr(e); return; }
   calVisitasActuales = visitas;
 
-  // Columnas: todos los asesores activos, más cualquier otro que aparezca
+  // Filas: todos los asesores activos, más cualquier otro que aparezca
   // en las visitas de esta semana aunque ya no esté activo.
   const asesoresMap = new Map(dashAsesores.map(a => [a.id, a.nombre]));
   visitas.forEach(v => { if (!asesoresMap.has(v.asesor_id)) asesoresMap.set(v.asesor_id, v.asesor_nombre); });
-  const columnas = Array.from(asesoresMap.entries());
+  const filas = Array.from(asesoresMap.entries());
 
   const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const fechasSemana = dias.map((_, i) => sumarDias(calSemanaInicio, i));
   const tabla = document.getElementById('cal-tabla');
 
-  let thead = '<thead><tr><th>Día</th>' + columnas.map(([, nombre]) => `<th>${ruteoEscapeHtml(nombre)}</th>`).join('') + '</tr></thead>';
+  let thead = '<thead><tr><th>Asesor</th>' +
+    dias.map((dia, i) => `<th style="white-space:nowrap">${dia}<br><span class="muted" style="font-weight:400">${ruteoFormatFecha(fechasSemana[i])}</span></th>`).join('') +
+    '</tr></thead>';
 
   let tbody = '<tbody>';
-  for (let i = 0; i < 7; i++) {
-    const fecha = sumarDias(calSemanaInicio, i);
-    tbody += `<tr><td style="white-space:nowrap"><b>${dias[i]}</b><br><span class="muted">${ruteoFormatFecha(fecha)}</span></td>`;
-    for (const [asesorId] of columnas) {
+  for (const [asesorId, nombreAsesor] of filas) {
+    tbody += `<tr><td style="white-space:nowrap"><b>${ruteoEscapeHtml(nombreAsesor)}</b></td>`;
+    for (const fecha of fechasSemana) {
       const delDia = visitas.filter(v => v.asesor_id === asesorId && v.fecha_visita === fecha);
       const chips = delDia.map(v => `
         <div class="badge ${colorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
