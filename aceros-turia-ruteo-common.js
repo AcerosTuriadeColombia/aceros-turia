@@ -167,6 +167,19 @@ function ruteoEstadoBadge(estado) {
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
+function ruteoColorCalendario(estadoEfectivo) {
+  if (estadoEfectivo === 'visitada') return 'badge-green';
+  if (['no_visitada', 'cancelada', 'reprogramada'].includes(estadoEfectivo)) return 'badge-yellow';
+  if (estadoEfectivo === 'vencida') return 'badge-red';
+  return 'badge-blue';
+}
+
+function ruteoSumarDias(fechaStr, n) {
+  const d = new Date(fechaStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 function ruteoOrigenBadge(origen) {
   const map = {
     planeacion: ['badge-gray', 'Planeada'],

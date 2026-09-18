@@ -1981,6 +1981,47 @@ begin
 end;
 $$;
 
+-- Igual que el anterior, pero para el calendario propio del asesor: solo
+-- sus visitas de la semana (no requiere ser administrador).
+create or replace function rpc_mi_calendario_semana(p_token uuid, p_semana_inicio date)
+returns table(
+  visita_id uuid,
+  fecha_visita date,
+  cliente_id uuid,
+  cliente_nombre text,
+  tipo_cliente text,
+  obra_nombre text,
+  motivo_id uuid,
+  estado text,
+  estado_efectivo text,
+  persona_contacto text,
+  comentarios text,
+  resultado_id uuid,
+  motivo_no_visita_id uuid,
+  motivo_cancelacion text,
+  fecha_reprogramada date
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+
+  return query
+    select vv.id, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
+           vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.estado, vv.estado_efectivo,
+           vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
+           vv.motivo_cancelacion, vv.fecha_reprogramada
+    from visitas_vista vv
+    where vv.asesor_id = v_sesion.asesor_id
+      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+    order by vv.fecha_visita;
+end;
+$$;
+
 create or replace function rpc_admin_marcar_acompanamiento(p_token uuid, p_visita_id uuid, p_acompana boolean)
 returns json
 language plpgsql
@@ -2072,6 +2113,7 @@ grant execute on function
   rpc_admin_calendario_semana(uuid, date),
   rpc_admin_marcar_acompanamiento(uuid, uuid, boolean),
   rpc_admin_listar_acompanamientos(uuid, date, date),
+  rpc_mi_calendario_semana(uuid, date),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
   rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),
