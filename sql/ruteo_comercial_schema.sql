@@ -217,8 +217,10 @@ select
      and v.fecha_visita < (now() at time zone 'America/Bogota')::date
     then 'vencida'
     else v.estado
-  end as estado_efectivo
-from visitas v;
+  end as estado_efectivo,
+  r.estado as ruta_estado
+from visitas v
+join rutas r on r.id = v.ruta_id;
 
 -- ============================================================================
 -- 2. BLOQUEAR ACCESO DIRECTO DESDE EL CLIENTE (RLS + revoke)
@@ -758,8 +760,8 @@ begin
 
   v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, p_fecha_visita);
   select * into v_ruta from rutas where id = v_ruta_id;
-  if v_ruta.estado <> 'borrador' then
-    raise exception 'La ruta ya fue enviada a aprobación; usa "agregar visita no planeada" si necesitas añadir algo nuevo.';
+  if v_ruta.estado = 'aceptada' then
+    raise exception 'Esta ruta ya fue aprobada por el administrador; usa "agregar visita no planeada" si necesitas añadir algo nuevo.';
   end if;
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
@@ -818,8 +820,8 @@ begin
   end if;
 
   select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if v_ruta.estado <> 'borrador' then
-    raise exception 'La ruta ya fue enviada; no se puede editar.';
+  if v_ruta.estado = 'aceptada' then
+    raise exception 'Esta ruta ya fue aprobada por el administrador; no se puede editar.';
   end if;
   if not fn_es_lunes_o_martes() then
     raise exception 'La planeación solo se puede modificar los días lunes y martes.';
@@ -880,8 +882,8 @@ begin
   end if;
 
   select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if v_ruta.estado <> 'borrador' then
-    raise exception 'La ruta ya fue enviada; no se puede eliminar.';
+  if v_ruta.estado = 'aceptada' then
+    raise exception 'Esta ruta ya fue aprobada por el administrador; no se puede eliminar.';
   end if;
   if not fn_es_lunes_o_martes() then
     raise exception 'La planeación solo se puede modificar los días lunes y martes.';
@@ -1161,6 +1163,10 @@ begin
   if v_visita.id is null or (v_visita.asesor_id <> v_sesion.asesor_id and not v_sesion.es_admin) then
     raise exception 'La visita no existe o no te pertenece.';
   end if;
+  if v_visita.origen = 'planeacion' and not v_sesion.es_admin
+     and not exists (select 1 from rutas where id = v_visita.ruta_id and estado = 'aceptada') then
+    raise exception 'Esta visita pertenece a una ruta que aún no ha sido aprobada por el administrador.';
+  end if;
 
   update visitas set
     estado = 'visitada',
@@ -1216,6 +1222,10 @@ begin
   if v_visita.id is null or (v_visita.asesor_id <> v_sesion.asesor_id and not v_sesion.es_admin) then
     raise exception 'La visita no existe o no te pertenece.';
   end if;
+  if v_visita.origen = 'planeacion' and not v_sesion.es_admin
+     and not exists (select 1 from rutas where id = v_visita.ruta_id and estado = 'aceptada') then
+    raise exception 'Esta visita pertenece a una ruta que aún no ha sido aprobada por el administrador.';
+  end if;
 
   update visitas set
     estado = 'no_visitada',
@@ -1246,6 +1256,10 @@ begin
 
   if v_visita.id is null or (v_visita.asesor_id <> v_sesion.asesor_id and not v_sesion.es_admin) then
     raise exception 'La visita no existe o no te pertenece.';
+  end if;
+  if v_visita.origen = 'planeacion' and not v_sesion.es_admin
+     and not exists (select 1 from rutas where id = v_visita.ruta_id and estado = 'aceptada') then
+    raise exception 'Esta visita pertenece a una ruta que aún no ha sido aprobada por el administrador.';
   end if;
 
   update visitas set
@@ -1279,6 +1293,10 @@ begin
 
   if v_visita.id is null or (v_visita.asesor_id <> v_sesion.asesor_id and not v_sesion.es_admin) then
     raise exception 'La visita no existe o no te pertenece.';
+  end if;
+  if v_visita.origen = 'planeacion' and not v_sesion.es_admin
+     and not exists (select 1 from rutas where id = v_visita.ruta_id and estado = 'aceptada') then
+    raise exception 'Esta visita pertenece a una ruta que aún no ha sido aprobada por el administrador.';
   end if;
 
   update visitas set
@@ -1983,6 +2001,11 @@ $$;
 
 -- Igual que el anterior, pero para el calendario propio del asesor: solo
 -- sus visitas de la semana (no requiere ser administrador).
+-- Se le agregaron columnas (origen, ruta_estado): CREATE OR REPLACE no
+-- permite cambiar el tipo de retorno de una función existente, así que
+-- primero hay que eliminarla.
+drop function if exists rpc_mi_calendario_semana(uuid, date);
+
 create or replace function rpc_mi_calendario_semana(p_token uuid, p_semana_inicio date)
 returns table(
   visita_id uuid,
@@ -1992,8 +2015,10 @@ returns table(
   tipo_cliente text,
   obra_nombre text,
   motivo_id uuid,
+  origen text,
   estado text,
   estado_efectivo text,
+  ruta_estado text,
   persona_contacto text,
   comentarios text,
   resultado_id uuid,
@@ -2012,8 +2037,8 @@ begin
 
   return query
     select vv.id, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
-           vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.estado, vv.estado_efectivo,
-           vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
+           vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.origen, vv.estado, vv.estado_efectivo,
+           vv.ruta_estado, vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
            vv.motivo_cancelacion, vv.fecha_reprogramada
     from visitas_vista vv
     where vv.asesor_id = v_sesion.asesor_id
