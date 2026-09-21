@@ -148,7 +148,7 @@ create table if not exists visitas (
 
   -- origen indica cómo se creó el registro
   origen text not null default 'planeacion' check (origen in ('planeacion','no_planeada','seguimiento','reprogramacion')),
-  origen_visita_id uuid references visitas(id),
+  origen_visita_id uuid references visitas(id) on delete set null,
 
   estado text not null default 'programada' check (estado in ('programada','visitada','no_visitada','cancelada','reprogramada')),
 
@@ -168,6 +168,14 @@ create table if not exists visitas (
 -- Si Mauricio va a acompañar al asesor en esta visita puntual (se marca
 -- desde el calendario del administrador).
 alter table visitas add column if not exists mauricio_acompana boolean not null default false;
+
+-- Corrige la FK de origen_visita_id si la tabla ya existía sin "on delete
+-- set null": sin esto, no se podía borrar una visita "reprogramada" (o
+-- "visitada" con seguimiento) porque la visita nueva que generó seguía
+-- apuntando a ella.
+alter table visitas drop constraint if exists visitas_origen_visita_id_fkey;
+alter table visitas add constraint visitas_origen_visita_id_fkey
+  foreign key (origen_visita_id) references visitas(id) on delete set null;
 
 create index if not exists visitas_ruta_idx on visitas (ruta_id);
 create index if not exists visitas_asesor_fecha_idx on visitas (asesor_id, fecha_visita);
