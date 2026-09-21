@@ -426,8 +426,20 @@ async function renderAprobaciones() {
       <td>${estadoRutaBadge(r.estado)}</td>
       <td>${r.aprobada_en ? new Date(r.aprobada_en).toLocaleString('es-CO') : '—'}</td>
       <td>${r.total_visitas}</td>
-      <td><button class="btn btn-outline btn-sm" onclick="verRutaDetalle('${r.id}', '${ruteoEscapeHtml(r.asesor_nombre)}', '${r.semana_inicio}', ${r.estado === 'enviada'})">Ver</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-outline btn-sm" onclick="verRutaDetalle('${r.id}', '${ruteoEscapeHtml(r.asesor_nombre)}', '${r.semana_inicio}', ${r.estado === 'enviada'})">Ver</button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarRuta('${r.id}', '${ruteoEscapeHtml(r.asesor_nombre)}', '${r.semana_inicio}')">Eliminar</button>
+      </td>
     </tr>`).join('');
+}
+
+async function eliminarRuta(rutaId, asesorNombre, semanaInicio) {
+  if (!confirm(`¿Eliminar la ruta de ${asesorNombre} — Semana ${ruteoRangoSemanaLabel(semanaInicio)}? Se eliminan también todas sus visitas. Esta acción no se puede deshacer.`)) return;
+  try {
+    await ruteoRpcAuth('rpc_admin_eliminar_ruta', { p_ruta_id: rutaId });
+    ruteoToast('Ruta eliminada ✓');
+    await renderAprobaciones();
+  } catch (e) { ruteoErr(e); }
 }
 
 function estadoRutaBadge(estado) {
