@@ -1078,6 +1078,41 @@ begin
 end;
 $$;
 
+-- Elimina una ruta completa (y todas sus visitas, por cascada) — para
+-- limpiar rutas de prueba o cualquier ruta, en cualquier estado.
+create or replace function rpc_admin_eliminar_ruta(p_token uuid, p_ruta_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_ruta rutas;
+  v_asesor_nombre text;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede eliminar rutas.';
+  end if;
+
+  select * into v_ruta from rutas where id = p_ruta_id;
+  if v_ruta.id is null then
+    raise exception 'Ruta no encontrada.';
+  end if;
+
+  select nombre into v_asesor_nombre from asesores where id = v_ruta.asesor_id;
+
+  insert into auditoria (ruta_id, accion, actor_id, detalle)
+  values (p_ruta_id, 'admin_eliminar_ruta', v_sesion.asesor_id,
+          json_build_object('asesor', v_asesor_nombre, 'semana_inicio', v_ruta.semana_inicio, 'estado', v_ruta.estado));
+
+  delete from rutas where id = p_ruta_id;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
 -- ============================================================================
 -- 8. LISTADOS DE VISITAS (planeación + ejecución)
 -- ============================================================================
@@ -2111,6 +2146,7 @@ grant execute on function
   rpc_admin_listar_rutas(uuid, text),
   rpc_admin_aprobar_ruta(uuid, uuid),
   rpc_admin_eliminar_visita(uuid, uuid),
+  rpc_admin_eliminar_ruta(uuid, uuid),
   rpc_listar_visitas_de_ruta(uuid, uuid),
   rpc_listar_mis_visitas(uuid, date, date),
   rpc_marcar_visitada(uuid, uuid, text, text, uuid, date),
