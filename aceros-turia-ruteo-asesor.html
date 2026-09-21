@@ -390,13 +390,13 @@ async function renderPlaneacion() {
   if (!info.puede_planear) {
     bannerHtml = `<div class="banner banner-warn">⏳ La planeación solo se puede crear o modificar los días lunes y martes. Si necesitas registrar una visita nueva ahora, usa "🚨 Visita no planeada".</div>`;
   } else if (estado === 'enviada') {
-    bannerHtml = `<div class="banner banner-info">📨 Tu ruta de esta semana ya fue enviada y está pendiente de aprobación.</div>`;
+    bannerHtml = `<div class="banner banner-info">📨 Tu ruta de esta semana ya fue enviada y está pendiente de aprobación. Todavía puedes agregar, editar o eliminar visitas mientras sea lunes o martes y Mauricio no la haya aprobado.</div>`;
   } else if (estado === 'aceptada') {
     bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada.</div>`;
   }
   banner.innerHTML = bannerHtml;
 
-  const formHabilitado = info.puede_planear && (!estado || estado === 'borrador');
+  const formHabilitado = info.puede_planear && estado !== 'aceptada';
   document.getElementById('btn-pl-guardar').disabled = !formHabilitado;
   ['pl-cliente','pl-tipo','pl-obra','pl-motivo','pl-fecha'].forEach(id => document.getElementById(id).disabled = !formHabilitado);
 
@@ -407,7 +407,7 @@ async function renderPlaneacion() {
 
   const tbody = document.getElementById('pl-tabla');
   document.getElementById('pl-empty').style.display = visitas.length ? 'none' : 'block';
-  const puedeEditar = info.puede_planear && estado === 'borrador';
+  const puedeEditar = info.puede_planear && estado !== 'aceptada';
 
   tbody.innerHTML = visitas.map(v => {
     const motivoNombre = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
@@ -571,13 +571,16 @@ async function renderMisVisitas() {
 
   tbody.innerHTML = visitas.map(v => {
     const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+    const puedeEjecutar = v.origen !== 'planeacion' || v.ruta_estado === 'aceptada';
     let acciones = '<span class="muted">—</span>';
-    if (v.estado === 'programada') {
+    if (v.estado === 'programada' && puedeEjecutar) {
       acciones = `
         <button class="btn btn-green btn-sm" onclick="abrirModalVisitada('${v.id}')">Visitada</button>
         <button class="btn btn-outline btn-sm" onclick="abrirModalNoVisitada('${v.id}')">No visitada</button>
         <button class="btn btn-outline btn-sm" onclick="abrirModalCancelada('${v.id}')">Cancelar</button>
         <button class="btn btn-outline btn-sm" onclick="abrirModalReprogramada('${v.id}')">Reprogramar</button>`;
+    } else if (v.estado === 'programada' && !puedeEjecutar) {
+      acciones = '<span class="badge badge-yellow">Esperando aprobación</span>';
     }
     return `<tr>
       <td>${ruteoFormatFecha(v.fecha_visita)}</td>
@@ -660,13 +663,16 @@ function abrirDetalleVisitaAsesor(visitaId) {
   document.getElementById('vi-contenido').innerHTML = detalle;
 
   const acciones = document.getElementById('vi-acciones');
-  if (v.estado === 'programada') {
+  const puedeEjecutar = v.origen !== 'planeacion' || v.ruta_estado === 'aceptada';
+  if (v.estado === 'programada' && puedeEjecutar) {
     acciones.innerHTML = `
       <button class="btn btn-green btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalVisitada('${v.visita_id}')">Marcar visitada</button>
       <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalNoVisitada('${v.visita_id}')">No visitada</button>
       <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalCancelada('${v.visita_id}')">Cancelar</button>
       <button class="btn btn-outline btn-sm" onclick="cerrarModal('modal-visita-info'); abrirModalReprogramada('${v.visita_id}')">Reprogramar</button>
       <button class="btn btn-outline" data-close="modal-visita-info">Cerrar</button>`;
+  } else if (v.estado === 'programada' && !puedeEjecutar) {
+    acciones.innerHTML = `<span class="badge badge-yellow" style="margin-right:auto">Esperando aprobación de Mauricio</span><button class="btn btn-outline" data-close="modal-visita-info">Cerrar</button>`;
   } else {
     acciones.innerHTML = `<button class="btn btn-outline" data-close="modal-visita-info">Cerrar</button>`;
   }
