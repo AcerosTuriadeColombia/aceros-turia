@@ -760,9 +760,6 @@ begin
 
   v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, p_fecha_visita);
   select * into v_ruta from rutas where id = v_ruta_id;
-  if v_ruta.estado = 'aceptada' then
-    raise exception 'Esta ruta ya fue aprobada por el administrador; usa "agregar visita no planeada" si necesitas añadir algo nuevo.';
-  end if;
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
   perform fn_asignar_cliente_asesor(v_cliente.id, v_sesion.asesor_id);
@@ -820,9 +817,6 @@ begin
   end if;
 
   select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if v_ruta.estado = 'aceptada' then
-    raise exception 'Esta ruta ya fue aprobada por el administrador; no se puede editar.';
-  end if;
   if not fn_es_lunes_o_martes() then
     raise exception 'La planeación solo se puede modificar los días lunes y martes.';
   end if;
@@ -882,9 +876,6 @@ begin
   end if;
 
   select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if v_ruta.estado = 'aceptada' then
-    raise exception 'Esta ruta ya fue aprobada por el administrador; no se puede eliminar.';
-  end if;
   if not fn_es_lunes_o_martes() then
     raise exception 'La planeación solo se puede modificar los días lunes y martes.';
   end if;

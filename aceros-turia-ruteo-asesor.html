@@ -296,6 +296,12 @@
 const sesion = ruteoRequireSesion();
 if (sesion && sesion.es_admin) { window.location.href = 'aceros-turia-ruteo-admin.html'; }
 let editingVisitaId = null;
+let modoModificarAceptada = false;
+
+function activarModificarAceptada() {
+  modoModificarAceptada = true;
+  renderPlaneacion();
+}
 let modalTargetVisitaId = null;
 let opciones = { motivo_visita: [], resultado_visita: [], motivo_no_visita: [] };
 
@@ -386,17 +392,20 @@ async function renderPlaneacion() {
   if (!document.getElementById('pl-fecha').value) document.getElementById('pl-fecha').value = ruteoHoyStr() < min || ruteoHoyStr() > max ? min : ruteoHoyStr();
 
   const estado = info.ruta ? info.ruta.estado : null;
+  const desbloqueadaAceptada = estado === 'aceptada' && modoModificarAceptada;
   let bannerHtml = '';
   if (!info.puede_planear) {
     bannerHtml = `<div class="banner banner-warn">⏳ La planeación solo se puede crear o modificar los días lunes y martes. Si necesitas registrar una visita nueva ahora, usa "🚨 Visita no planeada".</div>`;
   } else if (estado === 'enviada') {
     bannerHtml = `<div class="banner banner-info">📨 Tu ruta de esta semana ya fue enviada y está pendiente de aprobación. Todavía puedes agregar, editar o eliminar visitas mientras sea lunes o martes y Mauricio no la haya aprobado.</div>`;
-  } else if (estado === 'aceptada') {
-    bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada.</div>`;
+  } else if (estado === 'aceptada' && !desbloqueadaAceptada) {
+    bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada. <button class="btn btn-outline btn-sm" style="margin-left:.5rem" onclick="activarModificarAceptada()">✏️ Modificar ruta semanal</button></div>`;
+  } else if (estado === 'aceptada' && desbloqueadaAceptada) {
+    bannerHtml = `<div class="banner banner-warn">✏️ Estás modificando una ruta ya aprobada. Los cambios se guardan de inmediato.</div>`;
   }
   banner.innerHTML = bannerHtml;
 
-  const formHabilitado = info.puede_planear && estado !== 'aceptada';
+  const formHabilitado = info.puede_planear && (estado !== 'aceptada' || desbloqueadaAceptada);
   document.getElementById('btn-pl-guardar').disabled = !formHabilitado;
   ['pl-cliente','pl-tipo','pl-obra','pl-motivo','pl-fecha'].forEach(id => document.getElementById(id).disabled = !formHabilitado);
 
@@ -407,7 +416,7 @@ async function renderPlaneacion() {
 
   const tbody = document.getElementById('pl-tabla');
   document.getElementById('pl-empty').style.display = visitas.length ? 'none' : 'block';
-  const puedeEditar = info.puede_planear && estado !== 'aceptada';
+  const puedeEditar = formHabilitado;
 
   tbody.innerHTML = visitas.map(v => {
     const motivoNombre = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
