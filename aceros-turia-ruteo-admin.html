@@ -254,7 +254,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Cliente</th><th>Asesores asignados</th><th>Agregar asesor</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Foráneo</th><th>Asesores asignados</th><th>Agregar asesor</th></tr></thead>
           <tbody id="ca-tabla"></tbody>
         </table>
       </div>
@@ -305,7 +305,7 @@
     <div class="modal-title" id="rd-titulo">Detalle de la ruta</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Origen</th><th>Acciones</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Obra</th><th>Origen</th><th>Acciones</th></tr></thead>
         <tbody id="rd-tabla"></tbody>
       </table>
     </div>
@@ -573,7 +573,7 @@ async function renderCalendario() {
       const chips = delDia.map(v => `
         <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
              onclick="abrirDetalleVisita('${v.visita_id}')">
-          ${ruteoEscapeHtml(v.cliente_nombre)}${v.mauricio_acompana ? ' 👤' : ''}
+          ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}${v.mauricio_acompana ? ' 👤' : ''}
         </div>`).join('');
       tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
     }
@@ -593,6 +593,7 @@ function abrirDetalleVisita(visitaId) {
     <div><b>Asesor:</b> ${ruteoEscapeHtml(v.asesor_nombre)}</div>
     <div><b>Fecha:</b> ${ruteoFormatFecha(v.fecha_visita)}</div>
     <div><b>Tipo de cliente:</b> ${ruteoEscapeHtml(v.tipo_cliente)}</div>
+    <div><b>Modalidad:</b> ${ruteoModalidadBadge(v.modalidad)}</div>
     ${v.obra_nombre ? `<div><b>Obra:</b> ${ruteoEscapeHtml(v.obra_nombre)}</div>` : ''}
     <div><b>Motivo:</b> ${ruteoEscapeHtml(nombreOpcion('motivo_visita', v.motivo_id) || '—')}</div>
     <div><b>Estado:</b> ${ruteoEstadoBadge(v.estado_efectivo)}</div>`;
@@ -671,10 +672,11 @@ async function cargarDetalleVisitas() {
       <td>${ruteoFormatFecha(v.fecha_visita)}</td>
       <td>${ruteoEscapeHtml(v.cliente_nombre)}</td>
       <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoModalidadBadge(v.modalidad)}</td>
       <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
       <td>${ruteoOrigenBadge(v.origen)}</td>
       <td><button class="btn btn-danger btn-sm" onclick="eliminarVisitaAdmin('${v.id}')">Eliminar</button></td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">Sin visitas.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">Sin visitas.</td></tr>';
 }
 
 async function eliminarVisitaAdmin(visitaId) {
@@ -886,6 +888,9 @@ async function buscarClientesAsignados() {
       .map(a => `<option value="${a.id}">${ruteoEscapeHtml(a.nombre)}</option>`).join('');
     return `<tr>
       <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
+      <td style="text-align:center">
+        <input type="checkbox" ${c.foraneo ? 'checked' : ''} onchange="toggleForaneoCliente('${c.cliente_id}', this)" title="Cliente foráneo (llamadas en lugar de visitas)">
+      </td>
       <td>${chips}</td>
       <td>
         <select onchange="if(this.value) agregarAsesorACliente('${c.cliente_id}', this.value, this)" style="padding:.35rem .5rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:.78rem">
@@ -895,6 +900,13 @@ async function buscarClientesAsignados() {
       </td>
     </tr>`;
   }).join('');
+}
+
+async function toggleForaneoCliente(clienteId, checkbox) {
+  try {
+    await ruteoRpcAuth('rpc_admin_marcar_foraneo', { p_cliente_id: clienteId, p_foraneo: checkbox.checked });
+    ruteoToast(checkbox.checked ? 'Cliente marcado como foráneo ✓' : 'Cliente marcado como local ✓');
+  } catch (e) { ruteoErr(e); checkbox.checked = !checkbox.checked; }
 }
 
 async function agregarAsesorACliente(clienteId, asesorId, sel) {

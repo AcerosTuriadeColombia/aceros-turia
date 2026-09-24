@@ -190,3 +190,9 @@ function ruteoOrigenBadge(origen) {
   const [cls, label] = map[origen] || ['badge-gray', origen];
   return `<span class="badge ${cls}">${label}</span>`;
 }
+
+function ruteoModalidadBadge(modalidad) {
+  return modalidad === 'llamada'
+    ? '<span class="badge badge-blue">📞 Llamada</span>'
+    : '<span class="badge badge-gray">🏢 Visita</span>';
+}
