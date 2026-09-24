@@ -179,6 +179,21 @@ create table if not exists visitas (
   creado_en timestamptz not null default now(),
   actualizado_en timestamptz not null default now()
 );
+-- Si la tabla ya existía de una versión anterior, "create table if not
+-- exists" no le agrega columnas: se añaden aquí las que puedan faltar.
+alter table visitas add column if not exists origen text not null default 'planeacion';
+alter table visitas add column if not exists origen_visita_id uuid;
+alter table visitas add column if not exists persona_contacto text;
+alter table visitas add column if not exists comentarios text;
+alter table visitas add column if not exists resultado_id uuid references opciones(id);
+alter table visitas add column if not exists motivo_no_visita_id uuid references opciones(id);
+alter table visitas add column if not exists motivo_cancelacion text;
+alter table visitas add column if not exists fecha_reprogramada date;
+alter table visitas add column if not exists seguimiento_fecha date;
+alter table visitas add column if not exists ejecutada_en timestamptz;
+alter table visitas add column if not exists creado_en timestamptz not null default now();
+alter table visitas add column if not exists actualizado_en timestamptz not null default now();
+
 -- Si Mauricio va a acompañar al asesor en esta visita puntual (se marca
 -- desde el calendario del administrador).
 alter table visitas add column if not exists mauricio_acompana boolean not null default false;
