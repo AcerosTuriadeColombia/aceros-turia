@@ -94,6 +94,20 @@ alter table clientes drop constraint if exists clientes_estado_seguimiento_check
 alter table clientes add constraint clientes_estado_seguimiento_check
   check (estado_seguimiento is null or estado_seguimiento in ('cita_programada','moroso','no_existe'));
 
+-- Cliente foráneo: al programarle algo se sugiere "Llamada" en vez de
+-- "Visita" (el asesor puede cambiarlo igual).
+alter table clientes add column if not exists foraneo boolean not null default false;
+
+-- Un asesor puede dejar que otro (el "observador") vea su ruta, sus visitas
+-- (con comentarios) y sus clientes sin visitar, en modo solo lectura. La
+-- aprobación de rutas sigue siendo exclusiva del administrador.
+create table if not exists asesor_observadores (
+  asesor_id uuid not null references asesores(id) on delete cascade,
+  observador_id uuid not null references asesores(id) on delete cascade,
+  creado_en timestamptz not null default now(),
+  primary key (asesor_id, observador_id)
+);
+
 -- Avisos para el administrador cuando un asesor reporta que un cliente ya
 -- no existe, o lo marca como moroso.
 create table if not exists notificaciones (
@@ -168,6 +182,11 @@ create table if not exists visitas (
 -- Si Mauricio va a acompañar al asesor en esta visita puntual (se marca
 -- desde el calendario del administrador).
 alter table visitas add column if not exists mauricio_acompana boolean not null default false;
+
+-- Modalidad: visita presencial o llamada (para clientes foráneos).
+alter table visitas add column if not exists modalidad text not null default 'visita';
+alter table visitas drop constraint if exists visitas_modalidad_check;
+alter table visitas add constraint visitas_modalidad_check check (modalidad in ('visita','llamada'));
 
 -- Corrige la FK de origen_visita_id si la tabla ya existía sin "on delete
 -- set null": sin esto, no se podía borrar una visita "reprogramada" (o
@@ -244,8 +263,9 @@ alter table obras enable row level security;
 alter table opciones enable row level security;
 alter table cliente_asesores enable row level security;
 alter table notificaciones enable row level security;
+alter table asesor_observadores enable row level security;
 
-revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores, notificaciones from anon, authenticated;
+revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores, notificaciones, asesor_observadores from anon, authenticated;
 
 -- Catálogos: lectura pública (no sensible), sin escritura directa.
 revoke all on clientes, obras, opciones from anon, authenticated;
@@ -419,6 +439,32 @@ as $$
     (select tipo_cliente from visitas where cliente_id = p_cliente_id order by creado_en desc limit 1),
     'Cliente final'
   );
+$$;
+
+-- Modalidad sugerida para un cliente nuevo registro: "llamada" si el
+-- cliente es foráneo, "visita" en cualquier otro caso.
+create or replace function fn_modalidad_sugerida(p_cliente_id uuid)
+returns text
+language sql
+stable
+as $$
+  select case when coalesce((select foraneo from clientes where id = p_cliente_id), false)
+              then 'llamada' else 'visita' end;
+$$;
+
+-- Un asesor puede ver su propia información, o la de otro asesor si quedó
+-- registrado como su "observador" (rpc_admin_*), o si es administrador.
+create or replace function fn_puede_ver_asesor(p_observador_id uuid, p_asesor_objetivo_id uuid, p_es_admin boolean)
+returns boolean
+language sql
+stable
+as $$
+  select p_es_admin
+    or p_observador_id = p_asesor_objetivo_id
+    or exists (
+      select 1 from asesor_observadores
+      where asesor_id = p_asesor_objetivo_id and observador_id = p_observador_id
+    );
 $$;
 
 -- ============================================================================
@@ -686,8 +732,12 @@ $$;
 -- Clientes asignados al asesor que llama (para su desplegable de planeación).
 -- Un cliente nuevo que el asesor escriba libremente se autoasigna a él al
 -- guardarse (ver fn_asignar_cliente_asesor), así que aparecerá aquí después.
+-- Ganó la columna "foraneo": CREATE OR REPLACE no permite cambiar el tipo
+-- de retorno de una función existente sin eliminarla primero.
+drop function if exists rpc_mis_clientes(uuid);
+
 create or replace function rpc_mis_clientes(p_token uuid)
-returns table(id uuid, nombre text)
+returns table(id uuid, nombre text, foraneo boolean)
 language plpgsql
 security definer
 set search_path = public
@@ -697,7 +747,7 @@ declare
 begin
   select * into v_sesion from fn_sesion_asesor(p_token);
   return query
-    select c.id, c.nombre
+    select c.id, c.nombre, c.foraneo
     from clientes c
     join cliente_asesores ca on ca.cliente_id = c.id
     where ca.asesor_id = v_sesion.asesor_id and c.activo = true
@@ -730,13 +780,18 @@ begin
 end;
 $$;
 
+-- Ganó el parámetro p_modalidad: CREATE OR REPLACE no permite cambiar la
+-- lista de parámetros de una función existente sin eliminarla primero.
+drop function if exists rpc_agregar_visita_planeada(uuid, text, text, text, uuid, date);
+
 create or replace function rpc_agregar_visita_planeada(
   p_token uuid,
   p_cliente_nombre text,
   p_tipo_cliente text,
   p_obra_nombre text,
   p_motivo_id uuid,
-  p_fecha_visita date
+  p_fecha_visita date,
+  p_modalidad text default 'visita'
 )
 returns json
 language plpgsql
@@ -765,6 +820,9 @@ begin
   if p_tipo_cliente not in ('Constructor','Distribuidor','Arquitecto','Cliente final') then
     raise exception 'Tipo de cliente no válido.';
   end if;
+  if p_modalidad not in ('visita','llamada') then
+    raise exception 'Modalidad no válida.';
+  end if;
 
   v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, p_fecha_visita);
   select * into v_ruta from rutas where id = v_ruta_id;
@@ -778,11 +836,11 @@ begin
 
   insert into visitas (
     ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
-    tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita, origen, estado
+    tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita, origen, estado, modalidad
   ) values (
     v_ruta_id, v_sesion.asesor_id, v_cliente.id, trim(p_cliente_nombre), v_cliente.es_nuevo,
     p_tipo_cliente, v_obra_id, case when v_obra_id is not null then trim(p_obra_nombre) else null end,
-    p_motivo_id, p_fecha_visita, 'planeacion', 'programada'
+    p_motivo_id, p_fecha_visita, 'planeacion', 'programada', p_modalidad
   ) returning id into v_visita_id;
 
   insert into auditoria (ruta_id, visita_id, accion, actor_id, detalle)
@@ -792,6 +850,8 @@ begin
 end;
 $$;
 
+drop function if exists rpc_editar_visita_planeada(uuid, uuid, text, text, text, uuid, date);
+
 create or replace function rpc_editar_visita_planeada(
   p_token uuid,
   p_visita_id uuid,
@@ -799,7 +859,8 @@ create or replace function rpc_editar_visita_planeada(
   p_tipo_cliente text,
   p_obra_nombre text,
   p_motivo_id uuid,
-  p_fecha_visita date
+  p_fecha_visita date,
+  p_modalidad text default 'visita'
 )
 returns json
 language plpgsql
@@ -834,6 +895,9 @@ begin
   if p_tipo_cliente not in ('Constructor','Distribuidor','Arquitecto','Cliente final') then
     raise exception 'Tipo de cliente no válido.';
   end if;
+  if p_modalidad not in ('visita','llamada') then
+    raise exception 'Modalidad no válida.';
+  end if;
 
   select * into v_cliente from fn_upsert_cliente(p_cliente_nombre, v_sesion.asesor_id);
   perform fn_asignar_cliente_asesor(v_cliente.id, v_sesion.asesor_id);
@@ -852,6 +916,7 @@ begin
     obra_nombre = case when v_obra_id is not null then trim(p_obra_nombre) else null end,
     motivo_id = p_motivo_id,
     fecha_visita = p_fecha_visita,
+    modalidad = p_modalidad,
     actualizado_en = now()
   where id = p_visita_id;
 
@@ -938,13 +1003,16 @@ end;
 $$;
 
 -- Visita no planeada: excepción permitida cualquier día de la semana.
+drop function if exists rpc_agregar_visita_no_planeada(uuid, text, text, text, uuid, date);
+
 create or replace function rpc_agregar_visita_no_planeada(
   p_token uuid,
   p_cliente_nombre text,
   p_tipo_cliente text,
   p_obra_nombre text,
   p_motivo_id uuid,
-  p_fecha_visita date default null
+  p_fecha_visita date default null,
+  p_modalidad text default 'visita'
 )
 returns json
 language plpgsql
@@ -964,6 +1032,9 @@ begin
   if p_tipo_cliente not in ('Constructor','Distribuidor','Arquitecto','Cliente final') then
     raise exception 'Tipo de cliente no válido.';
   end if;
+  if p_modalidad not in ('visita','llamada') then
+    raise exception 'Modalidad no válida.';
+  end if;
 
   v_ruta_id := fn_asegurar_ruta(v_sesion.asesor_id, v_fecha);
 
@@ -976,11 +1047,11 @@ begin
 
   insert into visitas (
     ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
-    tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita, origen, estado
+    tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita, origen, estado, modalidad
   ) values (
     v_ruta_id, v_sesion.asesor_id, v_cliente.id, trim(p_cliente_nombre), v_cliente.es_nuevo,
     p_tipo_cliente, v_obra_id, case when v_obra_id is not null then trim(p_obra_nombre) else null end,
-    p_motivo_id, v_fecha, 'no_planeada', 'programada'
+    p_motivo_id, v_fecha, 'no_planeada', 'programada', p_modalidad
   ) returning id into v_visita_id;
 
   insert into auditoria (ruta_id, visita_id, accion, actor_id, detalle)
@@ -1225,11 +1296,11 @@ begin
     insert into visitas (
       ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
       tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita,
-      origen, origen_visita_id, estado
+      origen, origen_visita_id, estado, modalidad
     ) values (
       v_nueva_ruta, v_visita.asesor_id, v_visita.cliente_id, v_visita.cliente_nombre, false,
       v_visita.tipo_cliente, v_visita.obra_id, v_visita.obra_nombre, null, p_seguimiento_fecha,
-      'seguimiento', p_visita_id, 'programada'
+      'seguimiento', p_visita_id, 'programada', v_visita.modalidad
     ) returning id into v_nueva_id;
 
     insert into auditoria (ruta_id, visita_id, accion, actor_id, detalle)
@@ -1345,11 +1416,11 @@ begin
   insert into visitas (
     ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
     tipo_cliente, obra_id, obra_nombre, motivo_id, fecha_visita,
-    origen, origen_visita_id, estado
+    origen, origen_visita_id, estado, modalidad
   ) values (
     v_nueva_ruta, v_visita.asesor_id, v_visita.cliente_id, v_visita.cliente_nombre, false,
     v_visita.tipo_cliente, v_visita.obra_id, v_visita.obra_nombre, v_visita.motivo_id, p_nueva_fecha,
-    'reprogramacion', p_visita_id, 'programada'
+    'reprogramacion', p_visita_id, 'programada', v_visita.modalidad
   ) returning id into v_nueva_id;
 
   insert into auditoria (ruta_id, visita_id, accion, actor_id, detalle)
@@ -1598,10 +1669,10 @@ begin
 
     insert into visitas (
       ruta_id, asesor_id, cliente_id, cliente_nombre, cliente_es_nuevo,
-      tipo_cliente, fecha_visita, origen, estado
+      tipo_cliente, fecha_visita, origen, estado, modalidad
     ) values (
       v_ruta_id, v_sesion.asesor_id, p_cliente_id, v_cliente.nombre, false,
-      v_tipo_cliente, p_fecha_visita, 'no_planeada', 'programada'
+      v_tipo_cliente, p_fecha_visita, 'no_planeada', 'programada', fn_modalidad_sugerida(p_cliente_id)
     );
 
     insert into auditoria (ruta_id, accion, actor_id, detalle)
@@ -1683,8 +1754,12 @@ $$;
 
 -- Lista clientes con sus asesores asignados (chips), para el panel de admin.
 -- p_texto filtra por nombre de cliente (búsqueda parcial, sin mayúsculas).
+-- Ganó la columna "foraneo": CREATE OR REPLACE no permite cambiar el tipo
+-- de retorno de una función existente sin eliminarla primero.
+drop function if exists rpc_admin_listar_clientes(uuid, text);
+
 create or replace function rpc_admin_listar_clientes(p_token uuid, p_texto text default null)
-returns table(cliente_id uuid, cliente_nombre text, asesores json)
+returns table(cliente_id uuid, cliente_nombre text, foraneo boolean, asesores json)
 language plpgsql
 security definer
 set search_path = public
@@ -1698,7 +1773,7 @@ begin
   end if;
 
   return query
-    select c.id, c.nombre,
+    select c.id, c.nombre, c.foraneo,
            coalesce((
              select json_agg(json_build_object('id', a.id, 'nombre', a.nombre) order by a.nombre)
              from cliente_asesores ca
@@ -1709,6 +1784,25 @@ begin
     where p_texto is null or c.nombre ilike '%' || p_texto || '%'
     order by c.nombre
     limit 200;
+end;
+$$;
+
+create or replace function rpc_admin_marcar_foraneo(p_token uuid, p_cliente_id uuid, p_foraneo boolean)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not v_sesion.es_admin then
+    raise exception 'Solo el administrador puede marcar clientes foráneos.';
+  end if;
+
+  update clientes set foraneo = p_foraneo where id = p_cliente_id;
+  return json_build_object('ok', true);
 end;
 $$;
 
@@ -1987,6 +2081,10 @@ $$;
 
 -- Todas las visitas de una semana (todos los asesores), para armar la
 -- cuadrícula del calendario: filas por día, columnas por asesor.
+-- Ganó la columna modalidad: CREATE OR REPLACE no permite cambiar el tipo
+-- de retorno de una función existente, así que primero hay que eliminarla.
+drop function if exists rpc_admin_calendario_semana(uuid, date);
+
 create or replace function rpc_admin_calendario_semana(p_token uuid, p_semana_inicio date)
 returns table(
   visita_id uuid,
@@ -2006,7 +2104,8 @@ returns table(
   motivo_no_visita_id uuid,
   motivo_cancelacion text,
   fecha_reprogramada date,
-  mauricio_acompana boolean
+  mauricio_acompana boolean,
+  modalidad text
 )
 language plpgsql
 security definer
@@ -2024,7 +2123,7 @@ begin
     select vv.id, vv.asesor_id, a.nombre, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
            vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.estado, vv.estado_efectivo,
            vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
-           vv.motivo_cancelacion, vv.fecha_reprogramada, vv.mauricio_acompana
+           vv.motivo_cancelacion, vv.fecha_reprogramada, vv.mauricio_acompana, vv.modalidad
     from visitas_vista vv
     join asesores a on a.id = vv.asesor_id
     where a.es_admin = false
@@ -2053,6 +2152,7 @@ returns table(
   estado text,
   estado_efectivo text,
   ruta_estado text,
+  modalidad text,
   persona_contacto text,
   comentarios text,
   resultado_id uuid,
@@ -2072,12 +2172,143 @@ begin
   return query
     select vv.id, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
            vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.origen, vv.estado, vv.estado_efectivo,
-           vv.ruta_estado, vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
+           vv.ruta_estado, vv.modalidad, vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
            vv.motivo_cancelacion, vv.fecha_reprogramada
     from visitas_vista vv
     where vv.asesor_id = v_sesion.asesor_id
       and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
     order by vv.fecha_visita;
+end;
+$$;
+
+-- ============================================================================
+-- 6.1. VISIBILIDAD DE EQUIPO (ver la ruta de otro asesor, solo lectura)
+-- ============================================================================
+
+-- Asesores cuya ruta puede ver el que llama (además de la suya propia).
+create or replace function rpc_asesores_que_puedo_ver(p_token uuid)
+returns table(id uuid, nombre text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  return query
+    select a.id, a.nombre
+    from asesor_observadores ao
+    join asesores a on a.id = ao.asesor_id
+    where ao.observador_id = v_sesion.asesor_id and a.activo = true
+    order by a.nombre;
+end;
+$$;
+
+create or replace function rpc_calendario_semana_de(p_token uuid, p_asesor_objetivo_id uuid, p_semana_inicio date)
+returns table(
+  visita_id uuid,
+  fecha_visita date,
+  cliente_id uuid,
+  cliente_nombre text,
+  tipo_cliente text,
+  obra_nombre text,
+  motivo_id uuid,
+  origen text,
+  estado text,
+  estado_efectivo text,
+  ruta_estado text,
+  modalidad text,
+  persona_contacto text,
+  comentarios text,
+  resultado_id uuid,
+  motivo_no_visita_id uuid,
+  motivo_cancelacion text,
+  fecha_reprogramada date
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not fn_puede_ver_asesor(v_sesion.asesor_id, p_asesor_objetivo_id, v_sesion.es_admin) then
+    raise exception 'No tienes permiso para ver la ruta de este asesor.';
+  end if;
+
+  return query
+    select vv.id, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
+           vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.origen, vv.estado, vv.estado_efectivo,
+           vv.ruta_estado, vv.modalidad, vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
+           vv.motivo_cancelacion, vv.fecha_reprogramada
+    from visitas_vista vv
+    where vv.asesor_id = p_asesor_objetivo_id
+      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+    order by vv.fecha_visita;
+end;
+$$;
+
+create or replace function rpc_visitas_de(p_token uuid, p_asesor_objetivo_id uuid, p_desde date default null, p_hasta date default null)
+returns setof visitas_vista
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not fn_puede_ver_asesor(v_sesion.asesor_id, p_asesor_objetivo_id, v_sesion.es_admin) then
+    raise exception 'No tienes permiso para ver las visitas de este asesor.';
+  end if;
+
+  return query
+    select * from visitas_vista
+    where asesor_id = p_asesor_objetivo_id
+      and (p_desde is null or fecha_visita >= p_desde)
+      and (p_hasta is null or fecha_visita <= p_hasta)
+    order by fecha_visita;
+end;
+$$;
+
+create or replace function rpc_clientes_sin_visitar_de(p_token uuid, p_asesor_objetivo_id uuid, p_dias int default 30)
+returns table(
+  cliente_id uuid,
+  cliente_nombre text,
+  ultima_visita date,
+  dias_sin_visita int
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  if not fn_puede_ver_asesor(v_sesion.asesor_id, p_asesor_objetivo_id, v_sesion.es_admin) then
+    raise exception 'No tienes permiso para ver los clientes de este asesor.';
+  end if;
+
+  return query
+    select c.id, c.nombre, u.ultima_visita,
+           case when u.ultima_visita is null then null
+                else (fn_hoy_bogota() - u.ultima_visita)::int end
+    from clientes c
+    join cliente_asesores ca on ca.cliente_id = c.id and ca.asesor_id = p_asesor_objetivo_id
+    left join lateral (
+      select v.fecha_visita as ultima_visita
+      from visitas v
+      where v.cliente_id = c.id and v.asesor_id = p_asesor_objetivo_id and v.estado = 'visitada'
+      order by v.fecha_visita desc
+      limit 1
+    ) u on true
+    where c.activo = true
+      and c.estado_seguimiento is null
+      and (u.ultima_visita is null or (fn_hoy_bogota() - u.ultima_visita) >= p_dias)
+    order by u.ultima_visita asc nulls first;
 end;
 $$;
 
@@ -2146,11 +2377,11 @@ grant execute on function
   rpc_admin_listar_opciones(uuid, text),
   rpc_admin_upsert_opcion(uuid, uuid, text, text, int, boolean),
   rpc_mi_ruta_actual(uuid),
-  rpc_agregar_visita_planeada(uuid, text, text, text, uuid, date),
-  rpc_editar_visita_planeada(uuid, uuid, text, text, text, uuid, date),
+  rpc_agregar_visita_planeada(uuid, text, text, text, uuid, date, text),
+  rpc_editar_visita_planeada(uuid, uuid, text, text, text, uuid, date, text),
   rpc_eliminar_visita_planeada(uuid, uuid),
   rpc_enviar_ruta(uuid),
-  rpc_agregar_visita_no_planeada(uuid, text, text, text, uuid, date),
+  rpc_agregar_visita_no_planeada(uuid, text, text, text, uuid, date, text),
   rpc_admin_listar_rutas(uuid, text),
   rpc_admin_aprobar_ruta(uuid, uuid),
   rpc_admin_eliminar_visita(uuid, uuid),
@@ -2174,12 +2405,17 @@ grant execute on function
   rpc_admin_marcar_acompanamiento(uuid, uuid, boolean),
   rpc_admin_listar_acompanamientos(uuid, date, date),
   rpc_mi_calendario_semana(uuid, date),
+  rpc_asesores_que_puedo_ver(uuid),
+  rpc_calendario_semana_de(uuid, uuid, date),
+  rpc_visitas_de(uuid, uuid, date, date),
+  rpc_clientes_sin_visitar_de(uuid, uuid, int),
   rpc_admin_importar_clientes(uuid, text[], uuid),
   rpc_admin_historial_cliente(uuid, uuid),
   rpc_admin_clientes_sin_visitar(uuid, int, uuid[]),
   rpc_mis_clientes(uuid),
   rpc_admin_listar_clientes(uuid, text),
   rpc_admin_asignar_cliente(uuid, uuid, uuid),
+  rpc_admin_marcar_foraneo(uuid, uuid, boolean),
   rpc_admin_desasignar_cliente(uuid, uuid, uuid)
 to anon, authenticated;
 
@@ -2230,6 +2466,14 @@ from (values
   ('motivo_no_visita', 'Otro', 2)
 ) as v(categoria, nombre, orden)
 where not exists (select 1 from opciones where opciones.categoria = v.categoria);
+
+-- Olmes puede ver (solo lectura) la ruta, las visitas y los clientes sin
+-- visitar de Jorge; la aprobación sigue siendo exclusiva del administrador.
+insert into asesor_observadores (asesor_id, observador_id)
+select j.id, o.id
+from asesores j, asesores o
+where j.nombre = 'Jorge Eliecer Calvo Meza' and o.nombre = 'Olmes Ortega'
+on conflict (asesor_id, observador_id) do nothing;
 
 -- ============================================================================
 -- Fin del esquema.

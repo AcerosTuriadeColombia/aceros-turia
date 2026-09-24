@@ -28,6 +28,7 @@
   <button data-sec="sec-planeacion" class="active">📅 Planeación de ruta</button>
   <button data-sec="sec-visitas">✅ Mis visitas</button>
   <button data-sec="sec-dashboard">📊 Mi dashboard</button>
+  <button data-sec="sec-equipo" id="tab-equipo" style="display:none">👥 Equipo</button>
   <button data-sec="sec-cuenta">⚙️ Mi cuenta</button>
 </nav>
 
@@ -71,6 +72,17 @@
           <input type="date" id="pl-fecha">
         </div>
       </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Modalidad</label>
+          <select id="pl-modalidad">
+            <option value="visita">🏢 Visita presencial</option>
+            <option value="llamada">📞 Llamada</option>
+          </select>
+          <p class="hint">Se sugiere "Llamada" automáticamente si el cliente es foráneo.</p>
+        </div>
+        <div></div>
+      </div>
       <button class="btn btn-primary" id="btn-pl-guardar">+ Agregar a la ruta</button>
       <button class="btn btn-outline" id="btn-pl-cancelar-edicion" style="display:none">Cancelar edición</button>
     </div>
@@ -79,7 +91,7 @@
       <div class="card-title">📋 Visitas de esta semana <small id="pl-semana-label"></small></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Obra</th><th>Motivo</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Obra</th><th>Motivo</th><th>Origen</th><th>Acciones</th></tr></thead>
           <tbody id="pl-tabla"></tbody>
         </table>
       </div>
@@ -137,7 +149,7 @@
       <div class="card-title">📋 Mis visitas</div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Motivo</th><th>Estado</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Motivo</th><th>Estado</th><th>Origen</th><th>Acciones</th></tr></thead>
           <tbody id="vis-tabla"></tbody>
         </table>
       </div>
@@ -193,6 +205,71 @@
     </div>
   </div>
 
+  <!-- EQUIPO (solo lectura: rutas/visitas de asesores que me permitieron ver) -->
+  <div class="section" id="sec-equipo">
+    <div class="card">
+      <div class="card-title">👥 Ver la ruta de otro asesor</div>
+      <p class="hint" style="margin-bottom:.8rem">Puedes ver esta información pero no puedes editarla ni aprobarla; eso solo lo puede hacer Mauricio.</p>
+      <div class="field" style="max-width:320px">
+        <label>Asesor</label>
+        <select id="equipo-asesor-select"></select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🗓️ Su calendario semanal</div>
+      <div class="card-title" style="margin-bottom:.8rem">
+        <span style="display:flex;align-items:center;gap:.6rem">
+          <button class="btn btn-outline btn-sm" id="btn-ecal-anterior">◀ Anterior</button>
+          <b id="ecal-semana-label" style="font-size:.85rem"></b>
+          <button class="btn btn-outline btn-sm" id="btn-ecal-siguiente">Siguiente ▶</button>
+        </span>
+      </div>
+      <div class="pill-row" style="margin-bottom:1rem">
+        <span class="badge badge-blue">Programada</span>
+        <span class="badge badge-green">Visitada</span>
+        <span class="badge badge-yellow">Con novedad</span>
+        <span class="badge badge-red">No realizada / vencida</span>
+      </div>
+      <div class="table-wrap">
+        <table id="ecal-tabla" style="min-width:700px"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Sus visitas</div>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="ef-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="ef-hasta"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-ef-buscar">Buscar</button>
+      <div class="table-wrap" style="margin-top:1rem">
+        <table>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Motivo</th><th>Estado</th><th>Origen</th></tr></thead>
+          <tbody id="evis-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="evis-empty" style="display:none"><div class="icon">📭</div><p>No hay visitas en este rango de fechas.</p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        <span>⏰ Sus clientes sin visitar</span>
+        <span style="display:flex;align-items:center;gap:.5rem">
+          <input type="number" id="esv-dias" value="30" min="1" style="width:70px;padding:.4rem .6rem;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+          <button class="btn btn-outline btn-sm" id="btn-esv-buscar">días o más</button>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Última visita</th><th>Días sin visita</th></tr></thead>
+          <tbody id="esv-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="esv-empty" style="display:none"><div class="icon">✅</div><p>Sin clientes pendientes en ese rango.</p></div>
+    </div>
+  </div>
+
   <!-- MI CUENTA -->
   <div class="section" id="sec-cuenta">
     <div class="card" style="max-width:420px">
@@ -215,6 +292,15 @@
   </div>
 </div>
 
+<!-- MODAL: detalle de visita de equipo (solo lectura) -->
+<div class="modal-overlay" id="modal-visita-info-equipo">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">Detalle de la visita</div>
+    <div id="evi-contenido" style="font-size:.88rem;line-height:1.7"></div>
+    <div class="modal-actions"><button class="btn btn-outline" data-close="modal-visita-info-equipo">Cerrar</button></div>
+  </div>
+</div>
+
 <!-- MODAL: visita no planeada -->
 <div class="modal-overlay" id="modal-no-planeada">
   <div class="modal-box">
@@ -225,6 +311,13 @@
     <div class="field" id="np-obra-field" style="display:none"><label>Obra</label><input type="text" id="np-obra" list="obras-datalist"></div>
     <div class="field"><label>Motivo de la visita</label><select id="np-motivo"></select></div>
     <div class="field"><label>Fecha de la visita</label><input type="date" id="np-fecha"></div>
+    <div class="field">
+      <label>Modalidad</label>
+      <select id="np-modalidad">
+        <option value="visita">🏢 Visita presencial</option>
+        <option value="llamada">📞 Llamada</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" data-close="modal-no-planeada">Cancelar</button>
       <button class="btn btn-primary" id="btn-np-guardar">Agregar</button>
@@ -320,6 +413,7 @@ function initTabs() {
       if (btn.dataset.sec === 'sec-planeacion') renderPlaneacion();
       if (btn.dataset.sec === 'sec-visitas') { renderMisVisitas(); renderMiCalendario(); }
       if (btn.dataset.sec === 'sec-dashboard') { renderMiDashboard(); buscarMisClientesSinVisitar(); }
+      if (btn.dataset.sec === 'sec-equipo') { renderEquipoTodo(); }
     });
   });
 }
@@ -333,7 +427,7 @@ function llenarSelectOpciones(sel, lista, placeholder) {
     lista.map(o => `<option value="${o.id}">${ruteoEscapeHtml(o.nombre)}</option>`).join('');
 }
 
-let clientesMap = new Map(); // nombre -> id (solo clientes asignados a este asesor)
+let clientesMap = new Map(); // nombre -> {id, foraneo} (solo clientes asignados a este asesor)
 
 async function cargarCatalogos() {
   try {
@@ -343,7 +437,7 @@ async function cargarCatalogos() {
       ruteoSelect('opciones', 'select=id,nombre&categoria=eq.resultado_visita&activo=eq.true&order=orden'),
       ruteoSelect('opciones', 'select=id,nombre&categoria=eq.motivo_no_visita&activo=eq.true&order=orden')
     ]);
-    clientesMap = new Map((clientes || []).map(c => [c.nombre, c.id]));
+    clientesMap = new Map((clientes || []).map(c => [c.nombre, { id: c.id, foraneo: !!c.foraneo }]));
     document.getElementById('clientes-datalist').innerHTML = (clientes || []).map(c => `<option value="${ruteoEscapeHtml(c.nombre)}">`).join('');
     document.getElementById('obras-datalist').innerHTML = '';
     opciones.motivo_visita = mv; opciones.resultado_visita = rv; opciones.motivo_no_visita = mnv;
@@ -361,13 +455,20 @@ async function cargarCatalogos() {
 // (si el nombre escrito no coincide con un cliente conocido, queda vacío:
 // el campo sigue siendo texto libre para una obra nueva).
 async function actualizarObrasDeCliente(nombreCliente) {
-  const clienteId = clientesMap.get(nombreCliente.trim());
+  const cliente = clientesMap.get(nombreCliente.trim());
   const datalist = document.getElementById('obras-datalist');
-  if (!clienteId) { datalist.innerHTML = ''; return; }
+  if (!cliente) { datalist.innerHTML = ''; return; }
   try {
-    const obras = await ruteoSelect('obras', `select=nombre&cliente_id=eq.${clienteId}&order=nombre`);
+    const obras = await ruteoSelect('obras', `select=nombre&cliente_id=eq.${cliente.id}&order=nombre`);
     datalist.innerHTML = obras.map(o => `<option value="${ruteoEscapeHtml(o.nombre)}">`).join('');
   } catch (e) { /* silencioso: no bloquea el formulario */ }
+}
+
+// Sugiere "llamada" automáticamente si el cliente escrito es foráneo
+// (el asesor puede cambiarlo manualmente antes de guardar).
+function sugerirModalidad(nombreCliente, selectId) {
+  const cliente = clientesMap.get(nombreCliente.trim());
+  if (cliente) document.getElementById(selectId).value = cliente.foraneo ? 'llamada' : 'visita';
 }
 
 function toggleObraField(tipoSelId, rowOrFieldId) {
@@ -428,6 +529,7 @@ async function renderPlaneacion() {
       <td>${ruteoFormatFecha(v.fecha_visita)}</td>
       <td>${ruteoEscapeHtml(v.cliente_nombre)}${v.cliente_es_nuevo ? ' <span class="badge badge-orange">nuevo</span>' : ''}</td>
       <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoModalidadBadge(v.modalidad)}</td>
       <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
       <td>${motivoNombre ? ruteoEscapeHtml(motivoNombre.nombre) : '—'}</td>
       <td>${ruteoOrigenBadge(v.origen)}</td>
@@ -453,6 +555,7 @@ function iniciarEdicion(visitaId) {
   document.getElementById('pl-obra').value = v.obra_nombre || '';
   document.getElementById('pl-motivo').value = v.motivo_id || '';
   document.getElementById('pl-fecha').value = v.fecha_visita;
+  document.getElementById('pl-modalidad').value = v.modalidad || 'visita';
   document.getElementById('pl-form-title').textContent = '✏️ Editar visita';
   document.getElementById('btn-pl-guardar').textContent = 'Guardar cambios';
   document.getElementById('btn-pl-cancelar-edicion').style.display = '';
@@ -464,6 +567,7 @@ function cancelarEdicion() {
   document.getElementById('pl-cliente').value = '';
   document.getElementById('pl-obra').value = '';
   document.getElementById('pl-motivo').value = '';
+  document.getElementById('pl-modalidad').value = 'visita';
   document.getElementById('pl-form-title').textContent = '➕ Agregar visita a la ruta';
   document.getElementById('btn-pl-guardar').textContent = '+ Agregar a la ruta';
   document.getElementById('btn-pl-cancelar-edicion').style.display = 'none';
@@ -475,6 +579,7 @@ async function guardarVisitaPlaneada() {
   const obra = document.getElementById('pl-obra').value.trim();
   const motivoId = document.getElementById('pl-motivo').value || null;
   const fecha = document.getElementById('pl-fecha').value;
+  const modalidad = document.getElementById('pl-modalidad').value;
 
   if (!cliente) { ruteoToast('Ingresa el nombre del cliente.', 'err'); return; }
   if (!fecha) { ruteoToast('Selecciona la fecha de la visita.', 'err'); return; }
@@ -483,13 +588,13 @@ async function guardarVisitaPlaneada() {
     if (editingVisitaId) {
       await ruteoRpcAuth('rpc_editar_visita_planeada', {
         p_visita_id: editingVisitaId, p_cliente_nombre: cliente, p_tipo_cliente: tipo,
-        p_obra_nombre: obra || null, p_motivo_id: motivoId, p_fecha_visita: fecha
+        p_obra_nombre: obra || null, p_motivo_id: motivoId, p_fecha_visita: fecha, p_modalidad: modalidad
       });
       ruteoToast('Visita actualizada ✓');
     } else {
       await ruteoRpcAuth('rpc_agregar_visita_planeada', {
         p_cliente_nombre: cliente, p_tipo_cliente: tipo, p_obra_nombre: obra || null,
-        p_motivo_id: motivoId, p_fecha_visita: fecha
+        p_motivo_id: motivoId, p_fecha_visita: fecha, p_modalidad: modalidad
       });
       ruteoToast('Visita agregada a la ruta ✓');
     }
@@ -526,6 +631,7 @@ function abrirModalNoPlaneada() {
   document.getElementById('np-obra').value = '';
   document.getElementById('np-motivo').value = '';
   document.getElementById('np-fecha').value = ruteoHoyStr();
+  document.getElementById('np-modalidad').value = 'visita';
   toggleObraField('np-tipo', 'np-obra-field');
   abrirModal('modal-no-planeada');
 }
@@ -536,13 +642,14 @@ async function guardarNoPlaneada() {
   const obra = document.getElementById('np-obra').value.trim();
   const motivoId = document.getElementById('np-motivo').value || null;
   const fecha = document.getElementById('np-fecha').value || null;
+  const modalidad = document.getElementById('np-modalidad').value;
 
   if (!cliente) { ruteoToast('Ingresa el nombre del cliente.', 'err'); return; }
 
   try {
     await ruteoRpcAuth('rpc_agregar_visita_no_planeada', {
       p_cliente_nombre: cliente, p_tipo_cliente: tipo, p_obra_nombre: obra || null,
-      p_motivo_id: motivoId, p_fecha_visita: fecha
+      p_motivo_id: motivoId, p_fecha_visita: fecha, p_modalidad: modalidad
     });
     ruteoToast('Visita no planeada agregada ✓');
     cerrarModal('modal-no-planeada');
@@ -595,6 +702,7 @@ async function renderMisVisitas() {
       <td>${ruteoFormatFecha(v.fecha_visita)}</td>
       <td>${ruteoEscapeHtml(v.cliente_nombre)}${v.obra_nombre ? '<br><span class="muted">🏗️ '+ruteoEscapeHtml(v.obra_nombre)+'</span>' : ''}</td>
       <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoModalidadBadge(v.modalidad)}</td>
       <td>${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</td>
       <td>${ruteoEstadoBadge(v.estado_efectivo)}</td>
       <td>${ruteoOrigenBadge(v.origen)}</td>
@@ -630,7 +738,7 @@ async function renderMiCalendario() {
     const chips = delDia.map(v => `
       <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
            onclick="abrirDetalleVisitaAsesor('${v.visita_id}')">
-        ${ruteoEscapeHtml(v.cliente_nombre)}
+        ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}
       </div>`).join('');
     tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
   }
@@ -649,6 +757,7 @@ function abrirDetalleVisitaAsesor(visitaId) {
     <div><b>Cliente:</b> ${ruteoEscapeHtml(v.cliente_nombre)}</div>
     <div><b>Fecha:</b> ${ruteoFormatFecha(v.fecha_visita)}</div>
     <div><b>Tipo de cliente:</b> ${ruteoEscapeHtml(v.tipo_cliente)}</div>
+    <div><b>Modalidad:</b> ${ruteoModalidadBadge(v.modalidad)}</div>
     ${v.obra_nombre ? `<div><b>Obra:</b> ${ruteoEscapeHtml(v.obra_nombre)}</div>` : ''}
     <div><b>Motivo:</b> ${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</div>
     <div><b>Estado:</b> ${ruteoEstadoBadge(v.estado_efectivo)}</div>`;
@@ -763,6 +872,148 @@ async function guardarReprogramada() {
   } catch (e) { ruteoErr(e); }
 }
 
+// ---------- EQUIPO (solo lectura) ----------
+
+let equipoAsesores = [];
+let equipoAsesorId = null;
+let calSemanaInicioEquipo = ruteoLunesDeSemana(ruteoHoyStr());
+let calVisitasEquipo = [];
+
+// Se llama una sola vez al iniciar: si no puedo ver a nadie, la pestaña
+// "Equipo" queda oculta por completo.
+async function initEquipoTab() {
+  try { equipoAsesores = await ruteoRpcAuth('rpc_asesores_que_puedo_ver') || []; }
+  catch (e) { return; }
+  if (!equipoAsesores.length) return;
+
+  document.getElementById('tab-equipo').style.display = '';
+  const sel = document.getElementById('equipo-asesor-select');
+  sel.innerHTML = equipoAsesores.map(a => `<option value="${a.id}">${ruteoEscapeHtml(a.nombre)}</option>`).join('');
+  equipoAsesorId = equipoAsesores[0].id;
+}
+
+async function renderEquipoTodo() {
+  if (!equipoAsesorId) return;
+  await renderEquipoCalendario();
+  await renderEquipoVisitas();
+  await renderEquipoClientesSinVisitar();
+}
+
+async function renderEquipoCalendario() {
+  document.getElementById('ecal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicioEquipo)}`;
+
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_calendario_semana_de', { p_asesor_objetivo_id: equipoAsesorId, p_semana_inicio: calSemanaInicioEquipo }) || []; }
+  catch (e) { ruteoErr(e); return; }
+  calVisitasEquipo = visitas;
+
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
+  const fechasSemana = dias.map((_, i) => ruteoSumarDias(calSemanaInicioEquipo, i));
+  const tabla = document.getElementById('ecal-tabla');
+
+  let thead = '<thead><tr>' +
+    dias.map((dia, i) => `<th style="white-space:nowrap">${dia}<br><span class="muted" style="font-weight:400">${ruteoFormatFecha(fechasSemana[i])}</span></th>`).join('') +
+    '</tr></thead>';
+
+  let tbody = '<tbody><tr>';
+  for (const fecha of fechasSemana) {
+    const delDia = visitas.filter(v => v.fecha_visita === fecha);
+    const chips = delDia.map(v => `
+      <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+           onclick="abrirDetalleVisitaEquipo('${v.visita_id}')">
+        ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}
+      </div>`).join('');
+    tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
+  }
+  tbody += '</tr></tbody>';
+
+  tabla.innerHTML = thead + tbody;
+}
+
+function abrirDetalleVisitaEquipo(visitaId) {
+  const v = calVisitasEquipo.find(x => x.visita_id === visitaId);
+  if (!v) return;
+
+  const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+
+  let detalle = `
+    <div><b>Cliente:</b> ${ruteoEscapeHtml(v.cliente_nombre)}</div>
+    <div><b>Fecha:</b> ${ruteoFormatFecha(v.fecha_visita)}</div>
+    <div><b>Tipo de cliente:</b> ${ruteoEscapeHtml(v.tipo_cliente)}</div>
+    <div><b>Modalidad:</b> ${ruteoModalidadBadge(v.modalidad)}</div>
+    ${v.obra_nombre ? `<div><b>Obra:</b> ${ruteoEscapeHtml(v.obra_nombre)}</div>` : ''}
+    <div><b>Motivo:</b> ${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</div>
+    <div><b>Estado:</b> ${ruteoEstadoBadge(v.estado_efectivo)}</div>`;
+
+  if (v.estado === 'visitada') {
+    const resultado = [...opciones.resultado_visita].find(o => o.id === v.resultado_id);
+    detalle += `
+      <hr style="border-color:var(--border2);margin:.6rem 0">
+      <div><b>Persona que atendió:</b> ${ruteoEscapeHtml(v.persona_contacto || '—')}</div>
+      <div><b>Resultado:</b> ${resultado ? ruteoEscapeHtml(resultado.nombre) : '—'}</div>
+      <div><b>Comentarios:</b> ${ruteoEscapeHtml(v.comentarios || '—')}</div>`;
+  } else if (v.estado === 'no_visitada') {
+    const motivoNv = [...opciones.motivo_no_visita].find(o => o.id === v.motivo_no_visita_id);
+    detalle += `<div><b>Motivo de no visita:</b> ${motivoNv ? ruteoEscapeHtml(motivoNv.nombre) : '—'}</div>`;
+  } else if (v.estado === 'cancelada') {
+    detalle += `<div><b>Motivo de cancelación:</b> ${ruteoEscapeHtml(v.motivo_cancelacion || '—')}</div>`;
+  } else if (v.estado === 'reprogramada') {
+    detalle += `<div><b>Reprogramada para:</b> ${ruteoFormatFecha(v.fecha_reprogramada)}</div>`;
+  }
+
+  document.getElementById('evi-contenido').innerHTML = detalle;
+  abrirModal('modal-visita-info-equipo');
+}
+
+async function renderEquipoVisitas() {
+  let desde = document.getElementById('ef-desde').value;
+  let hasta = document.getElementById('ef-hasta').value;
+  if (!desde) {
+    desde = ruteoLunesDeSemana(ruteoHoyStr());
+    document.getElementById('ef-desde').value = desde;
+  }
+  if (!hasta) {
+    const d = new Date(desde + 'T00:00:00'); d.setDate(d.getDate() + 20);
+    hasta = d.toISOString().slice(0,10);
+    document.getElementById('ef-hasta').value = hasta;
+  }
+
+  let visitas;
+  try { visitas = await ruteoRpcAuth('rpc_visitas_de', { p_asesor_objetivo_id: equipoAsesorId, p_desde: desde, p_hasta: hasta }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  const tbody = document.getElementById('evis-tabla');
+  document.getElementById('evis-empty').style.display = visitas.length ? 'none' : 'block';
+
+  tbody.innerHTML = visitas.map(v => {
+    const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+    return `<tr>
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}${v.obra_nombre ? '<br><span class="muted">🏗️ '+ruteoEscapeHtml(v.obra_nombre)+'</span>' : ''}</td>
+      <td>${ruteoEscapeHtml(v.tipo_cliente)}</td>
+      <td>${ruteoModalidadBadge(v.modalidad)}</td>
+      <td>${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</td>
+      <td>${ruteoEstadoBadge(v.estado_efectivo)}</td>
+      <td>${ruteoOrigenBadge(v.origen)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function renderEquipoClientesSinVisitar() {
+  const dias = parseInt(document.getElementById('esv-dias').value, 10) || 30;
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_clientes_sin_visitar_de', { p_asesor_objetivo_id: equipoAsesorId, p_dias: dias }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('esv-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('esv-tabla').innerHTML = lista.map(c => `
+    <tr>
+      <td>${ruteoEscapeHtml(c.cliente_nombre)}</td>
+      <td>${c.ultima_visita ? ruteoFormatFecha(c.ultima_visita) : '<span class="badge badge-red">Nunca visitado</span>'}</td>
+      <td>${c.dias_sin_visita ?? '—'}</td>
+    </tr>`).join('');
+}
+
 // ---------- MI DASHBOARD ----------
 
 async function renderMiDashboard() {
@@ -871,8 +1122,8 @@ initHeader();
 initTabs();
 document.getElementById('pl-tipo').addEventListener('change', () => { toggleObraField('pl-tipo', 'pl-obra-row'); actualizarObrasDeCliente(document.getElementById('pl-cliente').value); });
 document.getElementById('np-tipo').addEventListener('change', () => { toggleObraField('np-tipo', 'np-obra-field'); actualizarObrasDeCliente(document.getElementById('np-cliente').value); });
-document.getElementById('pl-cliente').addEventListener('input', e => actualizarObrasDeCliente(e.target.value));
-document.getElementById('np-cliente').addEventListener('input', e => actualizarObrasDeCliente(e.target.value));
+document.getElementById('pl-cliente').addEventListener('input', e => { actualizarObrasDeCliente(e.target.value); sugerirModalidad(e.target.value, 'pl-modalidad'); });
+document.getElementById('np-cliente').addEventListener('input', e => { actualizarObrasDeCliente(e.target.value); sugerirModalidad(e.target.value, 'np-modalidad'); });
 document.getElementById('mv-seguimiento-check').addEventListener('change', e => {
   document.getElementById('mv-seguimiento-field').style.display = e.target.checked ? '' : 'none';
 });
@@ -891,11 +1142,17 @@ document.getElementById('btn-mr-guardar').addEventListener('click', guardarRepro
 document.getElementById('btn-cambiar-password').addEventListener('click', cambiarPassword);
 document.getElementById('btn-md-buscar').addEventListener('click', () => { renderMiDashboard(); buscarMisClientesSinVisitar(); });
 document.getElementById('btn-md-sv-buscar').addEventListener('click', buscarMisClientesSinVisitar);
+document.getElementById('equipo-asesor-select').addEventListener('change', e => { equipoAsesorId = e.target.value; renderEquipoTodo(); });
+document.getElementById('btn-ecal-anterior').addEventListener('click', () => { calSemanaInicioEquipo = ruteoSumarDias(calSemanaInicioEquipo, -7); renderEquipoCalendario(); });
+document.getElementById('btn-ecal-siguiente').addEventListener('click', () => { calSemanaInicioEquipo = ruteoSumarDias(calSemanaInicioEquipo, 7); renderEquipoCalendario(); });
+document.getElementById('btn-ef-buscar').addEventListener('click', renderEquipoVisitas);
+document.getElementById('btn-esv-buscar').addEventListener('click', renderEquipoClientesSinVisitar);
 
 (async function start() {
   if (!sesion) return;
   await cargarCatalogos();
   await renderPlaneacion();
+  await initEquipoTab();
 })();
 </script>
 </body>
