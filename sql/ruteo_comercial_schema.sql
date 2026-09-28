@@ -2490,6 +2490,11 @@ from asesores j, asesores o
 where j.nombre = 'Jorge Eliecer Calvo Meza' and o.nombre = 'Olmes Ortega'
 on conflict (asesor_id, observador_id) do nothing;
 
+-- Obliga a la API de Supabase (PostgREST) a recargar funciones y columnas
+-- nuevas; sin esto, la app puede ver "Could not find the function ... in the
+-- schema cache" aunque la función ya exista.
+notify pgrst, 'reload schema';
+
 -- ============================================================================
 -- Fin del esquema.
 -- ============================================================================
