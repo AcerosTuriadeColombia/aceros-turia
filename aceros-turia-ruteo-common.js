@@ -196,3 +196,67 @@ function ruteoModalidadBadge(modalidad) {
     ? '<span class="badge badge-blue">📞 Llamada</span>'
     : '<span class="badge badge-gray">🏢 Visita</span>';
 }
+
+// ---- Vista mensual de los calendarios ----
+
+function ruteoPrimerDiaMes(fechaStr) {
+  return fechaStr.slice(0, 8) + '01';
+}
+
+function ruteoUltimoDiaMes(fechaStr) {
+  const [y, m] = fechaStr.split('-').map(Number);
+  const d = new Date(y, m, 0); // día 0 del mes siguiente = último del mes
+  return `${y}-${String(m).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function ruteoSumarMeses(fechaStr, n) {
+  const [y, m] = fechaStr.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+}
+
+function ruteoMesLabel(fechaStr) {
+  const s = new Date(fechaStr + 'T00:00:00').toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Tabla de lunes a viernes con una fila por semana del mes de mesInicio.
+// chipsDelDia(fecha) devuelve el HTML de las visitas de ese día.
+function ruteoTablaMes(mesInicio, chipsDelDia) {
+  const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
+  const fin = ruteoUltimoDiaMes(mesInicio);
+  const hoy = ruteoHoyStr();
+  let html = '<thead><tr>' + dias.map(d => `<th>${d}</th>`).join('') + '</tr></thead><tbody>';
+  for (let lunes = ruteoLunesDeSemana(mesInicio); lunes <= fin; lunes = ruteoSumarDias(lunes, 7)) {
+    html += '<tr>';
+    for (let i = 0; i < 5; i++) {
+      const fecha = ruteoSumarDias(lunes, i);
+      const fuera = fecha < mesInicio || fecha > fin;
+      const numero = Number(fecha.slice(8));
+      html += `<td style="min-width:130px;vertical-align:top;${fuera ? 'opacity:.35' : ''}">
+        <div class="muted" style="font-size:.75rem;margin-bottom:4px;${fecha === hoy ? 'color:var(--accent);font-weight:700' : ''}">${numero}</div>
+        ${fuera ? '' : chipsDelDia(fecha)}
+      </td>`;
+    }
+    html += '</tr>';
+  }
+  return html + '</tbody>';
+}
+
+function ruteoRutaEstadoBadge(estado) {
+  const map = {
+    borrador: ['badge-gray', 'Sin enviar'],
+    enviada: ['badge-yellow', 'Por aprobar'],
+    aceptada: ['badge-green', 'Aprobada']
+  };
+  const [cls, label] = map[estado] || ['badge-gray', estado || '—'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+// Resalta el botón "Semana" o "Mes" activo de un calendario (prefijo de ids).
+function ruteoMarcarModo(prefijo, modo) {
+  const sem = document.getElementById(`btn-${prefijo}-modo-semana`);
+  const mes = document.getElementById(`btn-${prefijo}-modo-mes`);
+  sem.className = `btn btn-sm ${modo === 'semana' ? 'btn-primary' : 'btn-outline'}`;
+  mes.className = `btn btn-sm ${modo === 'mes' ? 'btn-primary' : 'btn-outline'}`;
+}

@@ -198,6 +198,15 @@ alter table visitas add column if not exists actualizado_en timestamptz not null
 -- desde el calendario del administrador).
 alter table visitas add column if not exists mauricio_acompana boolean not null default false;
 
+-- Acompañamientos de un observador (ej. Olmes) a visitas del asesor que
+-- observa (ej. Jorge); lo de Mauricio sigue en visitas.mauricio_acompana.
+create table if not exists visita_acompanantes (
+  visita_id uuid not null references visitas(id) on delete cascade,
+  acompanante_id uuid not null references asesores(id) on delete cascade,
+  creado_en timestamptz not null default now(),
+  primary key (visita_id, acompanante_id)
+);
+
 -- Modalidad: visita presencial o llamada (para clientes foráneos).
 alter table visitas add column if not exists modalidad text not null default 'visita';
 alter table visitas drop constraint if exists visitas_modalidad_check;
@@ -279,8 +288,9 @@ alter table opciones enable row level security;
 alter table cliente_asesores enable row level security;
 alter table notificaciones enable row level security;
 alter table asesor_observadores enable row level security;
+alter table visita_acompanantes enable row level security;
 
-revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores, notificaciones, asesor_observadores from anon, authenticated;
+revoke all on asesores, sesiones, rutas, visitas, auditoria, cliente_asesores, notificaciones, asesor_observadores, visita_acompanantes from anon, authenticated;
 
 -- Catálogos: lectura pública (no sensible), sin escritura directa.
 revoke all on clientes, obras, opciones from anon, authenticated;
@@ -341,6 +351,47 @@ language sql
 immutable
 as $$
   select p_fecha - ((extract(isodow from p_fecha)::int) - 1);
+$$;
+
+-- Del 1 al 5 de cada mes el asesor puede planear las visitas de todo el mes
+-- (además de la planeación semanal de los lunes y martes).
+create or replace function fn_es_inicio_de_mes()
+returns boolean
+language sql
+stable
+as $$
+  select extract(day from fn_hoy_bogota()) <= 5;
+$$;
+
+create or replace function fn_puede_planear()
+returns boolean
+language sql
+stable
+as $$
+  select fn_es_lunes_o_martes() or fn_es_inicio_de_mes();
+$$;
+
+-- Última fecha que hoy se puede planear: fin de mes del 1 al 5; si no, el
+-- domingo de la semana actual.
+create or replace function fn_planeacion_hasta()
+returns date
+language sql
+stable
+as $$
+  select case when fn_es_inicio_de_mes()
+              then (date_trunc('month', fn_hoy_bogota()) + interval '1 month' - interval '1 day')::date
+              else fn_lunes_semana(fn_hoy_bogota()) + 6 end;
+$$;
+
+-- Si hoy se puede crear, mover o borrar una visita planeada para p_fecha:
+-- desde el lunes de la semana actual hasta fn_planeacion_hasta().
+create or replace function fn_fecha_planeable(p_fecha date)
+returns boolean
+language sql
+stable
+as $$
+  select fn_puede_planear()
+     and p_fecha between fn_lunes_semana(fn_hoy_bogota()) and fn_planeacion_hasta();
 $$;
 
 -- Inserta el cliente si no existe (comparando sin mayúsculas/espacios) y
@@ -786,11 +837,23 @@ begin
 
   return json_build_object(
     'semana_inicio', v_semana,
-    'puede_planear', fn_es_lunes_o_martes(),
+    'puede_planear', fn_puede_planear(),
+    'planeacion_mensual', fn_es_inicio_de_mes(),
+    'fecha_min', v_semana,
+    'fecha_max', fn_planeacion_hasta(),
     'ruta', case when v_ruta.id is null then null else json_build_object(
       'id', v_ruta.id, 'estado', v_ruta.estado, 'enviada_en', v_ruta.enviada_en,
       'aprobada_en', v_ruta.aprobada_en
-    ) end
+    ) end,
+    -- Todas las rutas semanales dentro del rango planeable (en la
+    -- planeación mensual hay una por cada semana del mes).
+    'rutas', coalesce((
+      select json_agg(json_build_object('id', r.id, 'semana_inicio', r.semana_inicio, 'estado', r.estado)
+                      order by r.semana_inicio)
+      from rutas r
+      where r.asesor_id = v_sesion.asesor_id
+        and r.semana_inicio between v_semana and fn_lunes_semana(fn_planeacion_hasta())
+    ), '[]'::json)
   );
 end;
 $$;
@@ -815,7 +878,6 @@ set search_path = public
 as $$
 declare
   v_sesion record;
-  v_semana_actual date := fn_lunes_semana(fn_hoy_bogota());
   v_ruta_id uuid;
   v_ruta rutas;
   v_cliente record;
@@ -824,12 +886,13 @@ declare
 begin
   select * into v_sesion from fn_sesion_asesor(p_token);
 
-  if not fn_es_lunes_o_martes() then
-    raise exception 'La planeación de la ruta solo se puede crear o modificar los días lunes y martes.';
+  if not fn_puede_planear() then
+    raise exception 'La planeación de la ruta solo se puede crear o modificar los lunes y martes, o del 1 al 5 de cada mes.';
   end if;
 
-  if fn_lunes_semana(p_fecha_visita) <> v_semana_actual then
-    raise exception 'La fecha de la visita debe pertenecer a la semana actual.';
+  if not fn_fecha_planeable(p_fecha_visita) then
+    raise exception 'La fecha de la visita debe estar entre el % y el %.',
+      to_char(fn_lunes_semana(fn_hoy_bogota()), 'DD/MM/YYYY'), to_char(fn_planeacion_hasta(), 'DD/MM/YYYY');
   end if;
 
   if p_tipo_cliente not in ('Constructor','Distribuidor','Arquitecto','Cliente final') then
@@ -888,7 +951,6 @@ declare
   v_ruta rutas;
   v_cliente record;
   v_obra_id uuid;
-  v_semana_actual date := fn_lunes_semana(fn_hoy_bogota());
 begin
   select * into v_sesion from fn_sesion_asesor(p_token);
   select * into v_visita from visitas where id = p_visita_id;
@@ -900,12 +962,15 @@ begin
     raise exception 'Esta visita no forma parte de la planeación editable.';
   end if;
 
-  select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if not fn_es_lunes_o_martes() then
-    raise exception 'La planeación solo se puede modificar los días lunes y martes.';
+  if not fn_puede_planear() then
+    raise exception 'La planeación de la ruta solo se puede crear o modificar los lunes y martes, o del 1 al 5 de cada mes.';
   end if;
-  if fn_lunes_semana(p_fecha_visita) <> v_semana_actual then
-    raise exception 'La fecha de la visita debe pertenecer a la semana actual.';
+  if not fn_fecha_planeable(v_visita.fecha_visita) then
+    raise exception 'Esta visita ya no se puede modificar desde la planeación.';
+  end if;
+  if not fn_fecha_planeable(p_fecha_visita) then
+    raise exception 'La fecha de la visita debe estar entre el % y el %.',
+      to_char(fn_lunes_semana(fn_hoy_bogota()), 'DD/MM/YYYY'), to_char(fn_planeacion_hasta(), 'DD/MM/YYYY');
   end if;
   if p_tipo_cliente not in ('Constructor','Distribuidor','Arquitecto','Cliente final') then
     raise exception 'Tipo de cliente no válido.';
@@ -924,6 +989,7 @@ begin
   end if;
 
   update visitas set
+    ruta_id = fn_asegurar_ruta(v_sesion.asesor_id, p_fecha_visita),
     cliente_id = v_cliente.id,
     cliente_nombre = trim(p_cliente_nombre),
     tipo_cliente = p_tipo_cliente,
@@ -937,6 +1003,12 @@ begin
 
   insert into auditoria (ruta_id, visita_id, accion, actor_id)
   values (v_visita.ruta_id, p_visita_id, 'editar_visita_planeada', v_sesion.asesor_id);
+
+  -- Si la visita se movió a otra semana, la ruta anterior puede quedar
+  -- vacía: se borra para que no quede pendiente de aprobación sin visitas.
+  delete from rutas r
+  where r.id = v_visita.ruta_id
+    and not exists (select 1 from visitas v where v.ruta_id = r.id);
 
   return json_build_object('ok', true);
 end;
@@ -964,8 +1036,11 @@ begin
   end if;
 
   select * into v_ruta from rutas where id = v_visita.ruta_id;
-  if not fn_es_lunes_o_martes() then
-    raise exception 'La planeación solo se puede modificar los días lunes y martes.';
+  if not fn_puede_planear() then
+    raise exception 'La planeación de la ruta solo se puede crear o modificar los lunes y martes, o del 1 al 5 de cada mes.';
+  end if;
+  if not fn_fecha_planeable(v_visita.fecha_visita) then
+    raise exception 'Esta visita ya no se puede eliminar desde la planeación.';
   end if;
 
   insert into auditoria (ruta_id, visita_id, accion, actor_id)
@@ -986,34 +1061,40 @@ as $$
 declare
   v_sesion record;
   v_semana date := fn_lunes_semana(fn_hoy_bogota());
-  v_ruta rutas;
-  v_total int;
+  v_ruta_id uuid;
+  v_enviadas int := 0;
 begin
   select * into v_sesion from fn_sesion_asesor(p_token);
 
-  if not fn_es_lunes_o_martes() then
-    raise exception 'La ruta solo se puede enviar los días lunes y martes.';
+  if not fn_puede_planear() then
+    raise exception 'La ruta solo se puede enviar los lunes y martes, o del 1 al 5 de cada mes.';
   end if;
 
-  select * into v_ruta from rutas where asesor_id = v_sesion.asesor_id and semana_inicio = v_semana;
-  if v_ruta.id is null then
-    raise exception 'No has creado ninguna visita para esta semana.';
+  -- Envía todas las rutas semanales en borrador dentro del rango planeable:
+  -- la de esta semana (si tiene visitas) y, en la planeación mensual, las
+  -- de las semanas siguientes que tengan visitas planeadas.
+  for v_ruta_id in
+    select r.id from rutas r
+    where r.asesor_id = v_sesion.asesor_id
+      and r.estado = 'borrador'
+      and r.semana_inicio between v_semana and fn_lunes_semana(fn_planeacion_hasta())
+      and exists (
+        select 1 from visitas v
+        where v.ruta_id = r.id and (r.semana_inicio = v_semana or v.origen = 'planeacion')
+      )
+    order by r.semana_inicio
+  loop
+    update rutas set estado = 'enviada', enviada_en = now() where id = v_ruta_id;
+    insert into auditoria (ruta_id, accion, actor_id)
+    values (v_ruta_id, 'enviar_ruta', v_sesion.asesor_id);
+    v_enviadas := v_enviadas + 1;
+  end loop;
+
+  if v_enviadas = 0 then
+    raise exception 'No hay rutas pendientes por enviar: agrega al menos una visita (o ya fueron enviadas).';
   end if;
-  if v_ruta.estado <> 'borrador' then
-    raise exception 'Esta ruta ya fue enviada.';
-  end if;
 
-  select count(*) into v_total from visitas where ruta_id = v_ruta.id;
-  if v_total = 0 then
-    raise exception 'Agrega al menos una visita antes de enviar la ruta.';
-  end if;
-
-  update rutas set estado = 'enviada', enviada_en = now() where id = v_ruta.id;
-
-  insert into auditoria (ruta_id, accion, actor_id)
-  values (v_ruta.id, 'enviar_ruta', v_sesion.asesor_id);
-
-  return json_build_object('ok', true, 'ruta_id', v_ruta.id);
+  return json_build_object('ok', true, 'rutas_enviadas', v_enviadas);
 end;
 $$;
 
@@ -2098,9 +2179,10 @@ $$;
 -- cuadrícula del calendario: filas por día, columnas por asesor.
 -- Ganó la columna modalidad: CREATE OR REPLACE no permite cambiar el tipo
 -- de retorno de una función existente, así que primero hay que eliminarla.
+-- Ganó p_hasta (opcional) para la vista mensual; sin él, muestra la semana.
 drop function if exists rpc_admin_calendario_semana(uuid, date);
 
-create or replace function rpc_admin_calendario_semana(p_token uuid, p_semana_inicio date)
+create or replace function rpc_admin_calendario_semana(p_token uuid, p_semana_inicio date, p_hasta date default null)
 returns table(
   visita_id uuid,
   asesor_id uuid,
@@ -2142,7 +2224,7 @@ begin
     from visitas_vista vv
     join asesores a on a.id = vv.asesor_id
     where a.es_admin = false
-      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+      and vv.fecha_visita between p_semana_inicio and coalesce(p_hasta, p_semana_inicio + 6)
     order by vv.fecha_visita, a.nombre;
 end;
 $$;
@@ -2154,7 +2236,7 @@ $$;
 -- primero hay que eliminarla.
 drop function if exists rpc_mi_calendario_semana(uuid, date);
 
-create or replace function rpc_mi_calendario_semana(p_token uuid, p_semana_inicio date)
+create or replace function rpc_mi_calendario_semana(p_token uuid, p_semana_inicio date, p_hasta date default null)
 returns table(
   visita_id uuid,
   fecha_visita date,
@@ -2191,7 +2273,7 @@ begin
            vv.motivo_cancelacion, vv.fecha_reprogramada
     from visitas_vista vv
     where vv.asesor_id = v_sesion.asesor_id
-      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+      and vv.fecha_visita between p_semana_inicio and coalesce(p_hasta, p_semana_inicio + 6)
     order by vv.fecha_visita;
 end;
 $$;
@@ -2220,7 +2302,11 @@ begin
 end;
 $$;
 
-create or replace function rpc_calendario_semana_de(p_token uuid, p_asesor_objetivo_id uuid, p_semana_inicio date)
+-- Ganó p_hasta (vista mensual) y la columna yo_acompano: hay que eliminar
+-- la versión anterior antes de recrearla.
+drop function if exists rpc_calendario_semana_de(uuid, uuid, date);
+
+create or replace function rpc_calendario_semana_de(p_token uuid, p_asesor_objetivo_id uuid, p_semana_inicio date, p_hasta date default null)
 returns table(
   visita_id uuid,
   fecha_visita date,
@@ -2239,7 +2325,8 @@ returns table(
   resultado_id uuid,
   motivo_no_visita_id uuid,
   motivo_cancelacion text,
-  fecha_reprogramada date
+  fecha_reprogramada date,
+  yo_acompano boolean
 )
 language plpgsql
 security definer
@@ -2257,10 +2344,12 @@ begin
     select vv.id, vv.fecha_visita, vv.cliente_id, vv.cliente_nombre,
            vv.tipo_cliente, vv.obra_nombre, vv.motivo_id, vv.origen, vv.estado, vv.estado_efectivo,
            vv.ruta_estado, vv.modalidad, vv.persona_contacto, vv.comentarios, vv.resultado_id, vv.motivo_no_visita_id,
-           vv.motivo_cancelacion, vv.fecha_reprogramada
+           vv.motivo_cancelacion, vv.fecha_reprogramada,
+           exists (select 1 from visita_acompanantes va
+                   where va.visita_id = vv.id and va.acompanante_id = v_sesion.asesor_id)
     from visitas_vista vv
     where vv.asesor_id = p_asesor_objetivo_id
-      and vv.fecha_visita between p_semana_inicio and (p_semana_inicio + 6)
+      and vv.fecha_visita between p_semana_inicio and coalesce(p_hasta, p_semana_inicio + 6)
     order by vv.fecha_visita;
 end;
 $$;
@@ -2377,6 +2466,69 @@ begin
 end;
 $$;
 
+-- Un observador (ej. Olmes) marca o desmarca que acompañará una visita del
+-- asesor que observa (ej. Jorge). Igual que la casilla de Mauricio.
+create or replace function rpc_marcar_acompanamiento_equipo(p_token uuid, p_visita_id uuid, p_acompana boolean)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+  v_visita visitas;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  select * into v_visita from visitas where id = p_visita_id;
+  if v_visita.id is null then
+    raise exception 'Visita no encontrada.';
+  end if;
+  if not exists (
+    select 1 from asesor_observadores
+    where asesor_id = v_visita.asesor_id and observador_id = v_sesion.asesor_id
+  ) then
+    raise exception 'Solo puedes acompañar visitas de los asesores de tu equipo.';
+  end if;
+
+  if p_acompana then
+    insert into visita_acompanantes (visita_id, acompanante_id)
+    values (p_visita_id, v_sesion.asesor_id)
+    on conflict do nothing;
+  else
+    delete from visita_acompanantes
+    where visita_id = p_visita_id and acompanante_id = v_sesion.asesor_id;
+  end if;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Calendario de acompañamientos del que llama (ej. Olmes), en un rango.
+create or replace function rpc_mis_acompanamientos(p_token uuid, p_desde date, p_hasta date)
+returns table(
+  visita_id uuid, asesor_nombre text, fecha_visita date, cliente_nombre text,
+  tipo_cliente text, obra_nombre text, motivo_id uuid, modalidad text, estado_efectivo text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sesion record;
+begin
+  select * into v_sesion from fn_sesion_asesor(p_token);
+  return query
+    select vv.id, a.nombre, vv.fecha_visita, vv.cliente_nombre, vv.tipo_cliente, vv.obra_nombre,
+           vv.motivo_id, vv.modalidad, vv.estado_efectivo
+    from visita_acompanantes va
+    join visitas_vista vv on vv.id = va.visita_id
+    join asesores a on a.id = vv.asesor_id
+    where va.acompanante_id = v_sesion.asesor_id
+      and vv.fecha_visita between p_desde and p_hasta
+    order by vv.fecha_visita, a.nombre;
+end;
+$$;
+
 -- ============================================================================
 -- 11. PERMISOS DE EJECUCIÓN (RPC) PARA anon / authenticated
 -- ============================================================================
@@ -2416,12 +2568,14 @@ grant execute on function
   rpc_admin_descartar_notificacion(uuid, uuid),
   rpc_admin_listar_clientes_morosos(uuid),
   rpc_admin_resolver_moroso(uuid, uuid),
-  rpc_admin_calendario_semana(uuid, date),
+  rpc_admin_calendario_semana(uuid, date, date),
   rpc_admin_marcar_acompanamiento(uuid, uuid, boolean),
   rpc_admin_listar_acompanamientos(uuid, date, date),
-  rpc_mi_calendario_semana(uuid, date),
+  rpc_mi_calendario_semana(uuid, date, date),
   rpc_asesores_que_puedo_ver(uuid),
-  rpc_calendario_semana_de(uuid, uuid, date),
+  rpc_calendario_semana_de(uuid, uuid, date, date),
+  rpc_marcar_acompanamiento_equipo(uuid, uuid, boolean),
+  rpc_mis_acompanamientos(uuid, date, date),
   rpc_visitas_de(uuid, uuid, date, date),
   rpc_clientes_sin_visitar_de(uuid, uuid, int),
   rpc_admin_importar_clientes(uuid, text[], uuid),
