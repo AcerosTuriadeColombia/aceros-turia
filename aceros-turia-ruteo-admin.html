@@ -85,7 +85,13 @@
   <div class="section" id="sec-calendario">
     <div class="card">
       <div class="card-title">
-        <span>🗓️ Calendario semanal por asesor</span>
+        <span>🗓️ Calendario por asesor</span>
+        <span style="display:flex;gap:.3rem">
+          <button class="btn btn-primary btn-sm" id="btn-cal-modo-semana">Semana</button>
+          <button class="btn btn-outline btn-sm" id="btn-cal-modo-mes">Mes</button>
+        </span>
+      </div>
+      <div class="card-title" style="margin-bottom:.8rem">
         <span style="display:flex;align-items:center;gap:.6rem">
           <button class="btn btn-outline btn-sm" id="btn-cal-anterior">◀ Anterior</button>
           <b id="cal-semana-label" style="font-size:.85rem"></b>
@@ -540,16 +546,41 @@ async function resolverMoroso(clienteId) {
 // ---------- CALENDARIO ----------
 
 let calSemanaInicio = ruteoLunesDeSemana(ruteoHoyStr());
+let calMes = ruteoPrimerDiaMes(ruteoHoyStr());
+let calModo = 'semana';
 let calVisitasActuales = [];
 
+function moverCalendario(n) {
+  if (calModo === 'mes') calMes = ruteoSumarMeses(calMes, n);
+  else calSemanaInicio = ruteoSumarDias(calSemanaInicio, 7 * n);
+  renderCalendario();
+}
+
 async function renderCalendario() {
-  document.getElementById('cal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicio)}`;
+  const mes = calModo === 'mes';
+  const desde = mes ? calMes : calSemanaInicio;
+  const hasta = mes ? ruteoUltimoDiaMes(calMes) : ruteoSumarDias(calSemanaInicio, 6);
+  document.getElementById('cal-semana-label').textContent = mes ? ruteoMesLabel(calMes) : `Semana ${ruteoRangoSemanaLabel(calSemanaInicio)}`;
+  ruteoMarcarModo('cal', calModo);
   if (!dashAsesores.length) await cargarAsesoresChips();
 
   let visitas;
-  try { visitas = await ruteoRpcAuth('rpc_admin_calendario_semana', { p_semana_inicio: calSemanaInicio }) || []; }
+  try { visitas = await ruteoRpcAuth('rpc_admin_calendario_semana', { p_semana_inicio: desde, p_hasta: hasta }) || []; }
   catch (e) { ruteoErr(e); return; }
   calVisitasActuales = visitas;
+
+  // Vista mensual: una celda por día con las visitas de todos los asesores
+  // (primer nombre del asesor antes del cliente).
+  if (mes) {
+    document.getElementById('cal-tabla').innerHTML = ruteoTablaMes(calMes, fecha =>
+      visitas.filter(v => v.fecha_visita === fecha).map(v => `
+        <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+             onclick="abrirDetalleVisita('${v.visita_id}')">
+          <b>${ruteoEscapeHtml((v.asesor_nombre || '').split(' ')[0])}:</b>
+          ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}${v.mauricio_acompana ? ' 👤' : ''}
+        </div>`).join(''));
+    return;
+  }
 
   // Filas: todos los asesores activos, más cualquier otro que aparezca
   // en las visitas de esta semana aunque ya no esté activo.
@@ -1082,8 +1113,10 @@ document.getElementById('imp-archivo').addEventListener('change', e => {
 document.getElementById('btn-ca-buscar').addEventListener('click', buscarClientesAsignados);
 document.getElementById('ca-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarClientesAsignados(); });
 document.getElementById('notif-solo-no-leidas').addEventListener('change', renderNotificaciones);
-document.getElementById('btn-cal-anterior').addEventListener('click', () => { calSemanaInicio = ruteoSumarDias(calSemanaInicio, -7); renderCalendario(); });
-document.getElementById('btn-cal-siguiente').addEventListener('click', () => { calSemanaInicio = ruteoSumarDias(calSemanaInicio, 7); renderCalendario(); });
+document.getElementById('btn-cal-anterior').addEventListener('click', () => moverCalendario(-1));
+document.getElementById('btn-cal-siguiente').addEventListener('click', () => moverCalendario(1));
+document.getElementById('btn-cal-modo-semana').addEventListener('click', () => { calModo = 'semana'; renderCalendario(); });
+document.getElementById('btn-cal-modo-mes').addEventListener('click', () => { calModo = 'mes'; renderCalendario(); });
 document.getElementById('btn-acomp-buscar').addEventListener('click', buscarAcompanamientos);
 
 (async function start() {

@@ -88,14 +88,14 @@
     </div>
 
     <div class="card">
-      <div class="card-title">📋 Visitas de esta semana <small id="pl-semana-label"></small></div>
+      <div class="card-title"><span id="pl-tabla-titulo">📋 Visitas de esta semana</span> <small id="pl-semana-label"></small></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Obra</th><th>Motivo</th><th>Origen</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Modalidad</th><th>Obra</th><th>Motivo</th><th>Origen</th><th>Ruta</th><th>Acciones</th></tr></thead>
           <tbody id="pl-tabla"></tbody>
         </table>
       </div>
-      <div class="empty-state" id="pl-empty" style="display:none"><div class="icon">🗺️</div><p>Aún no has agregado visitas esta semana.</p></div>
+      <div class="empty-state" id="pl-empty" style="display:none"><div class="icon">🗺️</div><p>Aún no has agregado visitas.</p></div>
       <div style="margin-top:1rem">
         <button class="btn btn-green" id="btn-enviar-ruta">Enviar ruta a aprobación</button>
       </div>
@@ -105,7 +105,13 @@
   <!-- MIS VISITAS (ejecución) -->
   <div class="section" id="sec-visitas">
     <div class="card">
-      <div class="card-title">🗓️ Mi calendario semanal</div>
+      <div class="card-title">
+        <span>🗓️ Mi calendario</span>
+        <span style="display:flex;gap:.3rem">
+          <button class="btn btn-primary btn-sm" id="btn-mcal-modo-semana">Semana</button>
+          <button class="btn btn-outline btn-sm" id="btn-mcal-modo-mes">Mes</button>
+        </span>
+      </div>
       <div class="card-title" style="margin-bottom:.8rem">
         <span style="display:flex;align-items:center;gap:.6rem">
           <button class="btn btn-outline btn-sm" id="btn-mcal-anterior">◀ Anterior</button>
@@ -217,7 +223,13 @@
     </div>
 
     <div class="card">
-      <div class="card-title">🗓️ Su calendario semanal</div>
+      <div class="card-title">
+        <span>🗓️ Su calendario</span>
+        <span style="display:flex;gap:.3rem">
+          <button class="btn btn-primary btn-sm" id="btn-ecal-modo-semana">Semana</button>
+          <button class="btn btn-outline btn-sm" id="btn-ecal-modo-mes">Mes</button>
+        </span>
+      </div>
       <div class="card-title" style="margin-bottom:.8rem">
         <span style="display:flex;align-items:center;gap:.6rem">
           <button class="btn btn-outline btn-sm" id="btn-ecal-anterior">◀ Anterior</button>
@@ -234,6 +246,23 @@
       <div class="table-wrap">
         <table id="ecal-tabla" style="min-width:700px"></table>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📌 Mis acompañamientos</div>
+      <p class="hint" style="margin-bottom:.8rem">Visitas que marcaste para acompañar. Toca una visita del calendario y marca "Voy a acompañar esta visita".</p>
+      <div class="form-row">
+        <div class="field"><label>Desde</label><input type="date" id="acomp-desde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="acomp-hasta"></div>
+      </div>
+      <button class="btn btn-outline btn-sm" id="btn-acomp-buscar">Buscar</button>
+      <div class="table-wrap" style="margin-top:1rem">
+        <table>
+          <thead><tr><th>Fecha</th><th>Asesor</th><th>Cliente</th><th>Modalidad</th><th>Motivo</th><th>Estado</th></tr></thead>
+          <tbody id="acomp-tabla"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="acomp-empty" style="display:none"><div class="icon">📌</div><p>No tienes acompañamientos en este rango.</p></div>
     </div>
 
     <div class="card">
@@ -297,6 +326,12 @@
   <div class="modal-box" style="max-width:480px">
     <div class="modal-title">Detalle de la visita</div>
     <div id="evi-contenido" style="font-size:.88rem;line-height:1.7"></div>
+    <div class="field" style="margin-top:1rem">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="evi-acompana" style="width:auto">
+        Voy a acompañar esta visita
+      </label>
+    </div>
     <div class="modal-actions"><button class="btn btn-outline" data-close="modal-visita-info-equipo">Cerrar</button></div>
   </div>
 </div>
@@ -484,44 +519,63 @@ async function renderPlaneacion() {
   try { info = await ruteoRpcAuth('rpc_mi_ruta_actual'); } catch (e) { ruteoErr(e); return; }
   if (!info) return;
 
-  document.getElementById('pl-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(info.semana_inicio)}`;
+  const mensual = !!info.planeacion_mensual;
+  const rutas = info.rutas || [];
+  document.getElementById('pl-tabla-titulo').textContent = mensual ? '📋 Visitas planeadas del mes' : '📋 Visitas de esta semana';
+  document.getElementById('pl-semana-label').textContent = mensual
+    ? `${ruteoFormatFecha(info.fecha_min)} – ${ruteoFormatFecha(info.fecha_max)}`
+    : `Semana ${ruteoRangoSemanaLabel(info.semana_inicio)}`;
 
-  const min = info.semana_inicio;
-  const max = (() => { const d = new Date(min + 'T00:00:00'); d.setDate(d.getDate()+6); return d.toISOString().slice(0,10); })();
-  document.getElementById('pl-fecha').min = min;
-  document.getElementById('pl-fecha').max = max;
-  if (!document.getElementById('pl-fecha').value) document.getElementById('pl-fecha').value = ruteoHoyStr() < min || ruteoHoyStr() > max ? min : ruteoHoyStr();
+  const min = info.fecha_min;
+  const max = info.fecha_max;
+  const inputFecha = document.getElementById('pl-fecha');
+  inputFecha.min = min;
+  inputFecha.max = max;
+  if (!inputFecha.value || inputFecha.value < min || inputFecha.value > max) {
+    inputFecha.value = ruteoHoyStr() < min || ruteoHoyStr() > max ? min : ruteoHoyStr();
+  }
 
   const estado = info.ruta ? info.ruta.estado : null;
-  const desbloqueadaAceptada = estado === 'aceptada' && modoModificarAceptada;
+  const hayAceptadas = rutas.some(r => r.estado === 'aceptada');
+  const desbloqueadaAceptada = hayAceptadas && modoModificarAceptada;
+  const btnModificar = `<button class="btn btn-outline btn-sm" style="margin-left:.5rem" onclick="activarModificarAceptada()">✏️ Modificar ruta ${mensual ? 'aprobada' : 'semanal'}</button>`;
   let bannerHtml = '';
   if (!info.puede_planear) {
-    bannerHtml = `<div class="banner banner-warn">⏳ La planeación solo se puede crear o modificar los días lunes y martes. Si necesitas registrar una visita nueva ahora, usa "🚨 Visita no planeada".</div>`;
+    bannerHtml = `<div class="banner banner-warn">⏳ La planeación solo se puede crear o modificar los lunes y martes, o del 1 al 5 de cada mes. Si necesitas registrar una visita nueva ahora, usa "🚨 Visita no planeada".</div>`;
+  } else if (mensual) {
+    bannerHtml = `<div class="banner banner-info">📆 Del 1 al 5 de cada mes puedes planear las visitas de todo el mes (hasta el ${ruteoFormatFecha(max)}). Al terminar, envía la ruta: se envía a Mauricio una ruta por cada semana.${hayAceptadas && !desbloqueadaAceptada ? btnModificar : ''}</div>`;
+    if (desbloqueadaAceptada) bannerHtml += `<div class="banner banner-warn">✏️ Estás modificando semanas ya aprobadas. Los cambios se guardan de inmediato.</div>`;
   } else if (estado === 'enviada') {
     bannerHtml = `<div class="banner banner-info">📨 Tu ruta de esta semana ya fue enviada y está pendiente de aprobación. Todavía puedes agregar, editar o eliminar visitas mientras sea lunes o martes y Mauricio no la haya aprobado.</div>`;
   } else if (estado === 'aceptada' && !desbloqueadaAceptada) {
-    bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada. <button class="btn btn-outline btn-sm" style="margin-left:.5rem" onclick="activarModificarAceptada()">✏️ Modificar ruta semanal</button></div>`;
+    bannerHtml = `<div class="banner banner-ok">✅ Tu ruta de esta semana ya fue aprobada. ${btnModificar}</div>`;
   } else if (estado === 'aceptada' && desbloqueadaAceptada) {
     bannerHtml = `<div class="banner banner-warn">✏️ Estás modificando una ruta ya aprobada. Los cambios se guardan de inmediato.</div>`;
   }
   banner.innerHTML = bannerHtml;
 
-  const formHabilitado = info.puede_planear && (estado !== 'aceptada' || desbloqueadaAceptada);
+  const formHabilitado = info.puede_planear && (mensual || estado !== 'aceptada' || desbloqueadaAceptada);
   document.getElementById('btn-pl-guardar').disabled = !formHabilitado;
-  ['pl-cliente','pl-tipo','pl-obra','pl-motivo','pl-fecha'].forEach(id => document.getElementById(id).disabled = !formHabilitado);
+  ['pl-cliente','pl-tipo','pl-obra','pl-motivo','pl-fecha','pl-modalidad'].forEach(id => document.getElementById(id).disabled = !formHabilitado);
 
   let visitas = [];
-  if (info.ruta) {
-    try { visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: info.ruta.id }) || []; } catch (e) { ruteoErr(e); }
-  }
+  try {
+    if (mensual) {
+      visitas = await ruteoRpcAuth('rpc_listar_mis_visitas', { p_desde: min, p_hasta: max }) || [];
+    } else if (info.ruta) {
+      visitas = await ruteoRpcAuth('rpc_listar_visitas_de_ruta', { p_ruta_id: info.ruta.id }) || [];
+    }
+  } catch (e) { ruteoErr(e); }
 
   const tbody = document.getElementById('pl-tabla');
   document.getElementById('pl-empty').style.display = visitas.length ? 'none' : 'block';
-  const puedeEditar = formHabilitado;
 
   tbody.innerHTML = visitas.map(v => {
     const motivoNombre = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
-    const acciones = (v.origen === 'planeacion' && puedeEditar)
+    const puedeEditar = info.puede_planear && v.origen === 'planeacion'
+      && v.fecha_visita >= min && v.fecha_visita <= max
+      && (v.ruta_estado !== 'aceptada' || desbloqueadaAceptada);
+    const acciones = puedeEditar
       ? `<button class="btn btn-outline btn-sm" onclick="iniciarEdicion('${v.id}')">Editar</button>
          <button class="btn btn-danger btn-sm" onclick="eliminarVisitaPlaneada('${v.id}')">Eliminar</button>`
       : '<span class="muted">—</span>';
@@ -533,14 +587,17 @@ async function renderPlaneacion() {
       <td>${ruteoEscapeHtml(v.obra_nombre || '—')}</td>
       <td>${motivoNombre ? ruteoEscapeHtml(motivoNombre.nombre) : '—'}</td>
       <td>${ruteoOrigenBadge(v.origen)}</td>
+      <td>${ruteoRutaEstadoBadge(v.ruta_estado)}</td>
       <td>${acciones}</td>
     </tr>`;
   }).join('');
 
   window._planeacionVisitas = visitas;
+  window._planeacionMensual = mensual;
 
   const btnEnviar = document.getElementById('btn-enviar-ruta');
-  btnEnviar.disabled = !(info.puede_planear && estado === 'borrador' && visitas.length > 0);
+  btnEnviar.textContent = mensual ? 'Enviar rutas del mes a aprobación' : 'Enviar ruta a aprobación';
+  btnEnviar.disabled = !(info.puede_planear && rutas.some(r => r.estado === 'borrador') && visitas.length > 0);
   btnEnviar.onclick = enviarRuta;
 }
 
@@ -616,10 +673,14 @@ async function eliminarVisitaPlaneada(id) {
 }
 
 async function enviarRuta() {
-  if (!confirm('¿Enviar la ruta de esta semana a aprobación? No podrás agregar más visitas planeadas hasta que sea revisada.')) return;
+  const pregunta = window._planeacionMensual
+    ? '¿Enviar a aprobación las rutas del mes? Se envía una ruta por cada semana con visitas.'
+    : '¿Enviar la ruta de esta semana a aprobación?';
+  if (!confirm(pregunta)) return;
   try {
-    await ruteoRpcAuth('rpc_enviar_ruta');
-    ruteoToast('Ruta enviada a aprobación ✓');
+    const r = await ruteoRpcAuth('rpc_enviar_ruta');
+    const n = r && r.rutas_enviadas;
+    ruteoToast(n > 1 ? `${n} rutas semanales enviadas a aprobación ✓` : 'Ruta enviada a aprobación ✓');
     await renderPlaneacion();
   } catch (e) { ruteoErr(e); }
 }
@@ -714,19 +775,36 @@ async function renderMisVisitas() {
 // ---------- MI CALENDARIO SEMANAL ----------
 
 let calSemanaInicioAsesor = ruteoLunesDeSemana(ruteoHoyStr());
+let calMesAsesor = ruteoPrimerDiaMes(ruteoHoyStr());
+let calModoAsesor = 'semana';
 let calVisitasAsesor = [];
 
+function chipVisitaAsesor(v) {
+  return `
+    <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+         onclick="abrirDetalleVisitaAsesor('${v.visita_id}')">
+      ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}
+    </div>`;
+}
+
 async function renderMiCalendario() {
-  document.getElementById('mcal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicioAsesor)}`;
+  const mes = calModoAsesor === 'mes';
+  const desde = mes ? calMesAsesor : calSemanaInicioAsesor;
+  const hasta = mes ? ruteoUltimoDiaMes(calMesAsesor) : ruteoSumarDias(calSemanaInicioAsesor, 6);
+  document.getElementById('mcal-semana-label').textContent = mes ? ruteoMesLabel(calMesAsesor) : `Semana ${ruteoRangoSemanaLabel(calSemanaInicioAsesor)}`;
+  ruteoMarcarModo('mcal', calModoAsesor);
 
   let visitas;
-  try { visitas = await ruteoRpcAuth('rpc_mi_calendario_semana', { p_semana_inicio: calSemanaInicioAsesor }) || []; }
+  try { visitas = await ruteoRpcAuth('rpc_mi_calendario_semana', { p_semana_inicio: desde, p_hasta: hasta }) || []; }
   catch (e) { ruteoErr(e); return; }
   calVisitasAsesor = visitas;
 
+  const chipsDelDia = fecha => visitas.filter(v => v.fecha_visita === fecha).map(chipVisitaAsesor).join('');
+  const tabla = document.getElementById('mcal-tabla');
+  if (mes) { tabla.innerHTML = ruteoTablaMes(calMesAsesor, chipsDelDia); return; }
+
   const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const fechasSemana = dias.map((_, i) => ruteoSumarDias(calSemanaInicioAsesor, i));
-  const tabla = document.getElementById('mcal-tabla');
 
   let thead = '<thead><tr>' +
     dias.map((dia, i) => `<th style="white-space:nowrap">${dia}<br><span class="muted" style="font-weight:400">${ruteoFormatFecha(fechasSemana[i])}</span></th>`).join('') +
@@ -734,13 +812,7 @@ async function renderMiCalendario() {
 
   let tbody = '<tbody><tr>';
   for (const fecha of fechasSemana) {
-    const delDia = visitas.filter(v => v.fecha_visita === fecha);
-    const chips = delDia.map(v => `
-      <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
-           onclick="abrirDetalleVisitaAsesor('${v.visita_id}')">
-        ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}
-      </div>`).join('');
-    tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
+    tbody += `<td style="min-width:150px;vertical-align:top">${chipsDelDia(fecha)}</td>`;
   }
   tbody += '</tr></tbody>';
 
@@ -877,6 +949,8 @@ async function guardarReprogramada() {
 let equipoAsesores = [];
 let equipoAsesorId = null;
 let calSemanaInicioEquipo = ruteoLunesDeSemana(ruteoHoyStr());
+let calMesEquipo = ruteoPrimerDiaMes(ruteoHoyStr());
+let calModoEquipo = 'semana';
 let calVisitasEquipo = [];
 
 // Se llama una sola vez al iniciar: si no puedo ver a nadie, la pestaña
@@ -895,21 +969,37 @@ async function initEquipoTab() {
 async function renderEquipoTodo() {
   if (!equipoAsesorId) return;
   await renderEquipoCalendario();
+  await buscarMisAcompanamientos();
   await renderEquipoVisitas();
   await renderEquipoClientesSinVisitar();
 }
 
+function chipVisitaEquipo(v) {
+  return `
+    <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
+         onclick="abrirDetalleVisitaEquipo('${v.visita_id}')">
+      ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}${v.yo_acompano ? ' 👤' : ''}
+    </div>`;
+}
+
 async function renderEquipoCalendario() {
-  document.getElementById('ecal-semana-label').textContent = `Semana ${ruteoRangoSemanaLabel(calSemanaInicioEquipo)}`;
+  const mes = calModoEquipo === 'mes';
+  const desde = mes ? calMesEquipo : calSemanaInicioEquipo;
+  const hasta = mes ? ruteoUltimoDiaMes(calMesEquipo) : ruteoSumarDias(calSemanaInicioEquipo, 6);
+  document.getElementById('ecal-semana-label').textContent = mes ? ruteoMesLabel(calMesEquipo) : `Semana ${ruteoRangoSemanaLabel(calSemanaInicioEquipo)}`;
+  ruteoMarcarModo('ecal', calModoEquipo);
 
   let visitas;
-  try { visitas = await ruteoRpcAuth('rpc_calendario_semana_de', { p_asesor_objetivo_id: equipoAsesorId, p_semana_inicio: calSemanaInicioEquipo }) || []; }
+  try { visitas = await ruteoRpcAuth('rpc_calendario_semana_de', { p_asesor_objetivo_id: equipoAsesorId, p_semana_inicio: desde, p_hasta: hasta }) || []; }
   catch (e) { ruteoErr(e); return; }
   calVisitasEquipo = visitas;
 
+  const chipsDelDia = fecha => visitas.filter(v => v.fecha_visita === fecha).map(chipVisitaEquipo).join('');
+  const tabla = document.getElementById('ecal-tabla');
+  if (mes) { tabla.innerHTML = ruteoTablaMes(calMesEquipo, chipsDelDia); return; }
+
   const dias = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const fechasSemana = dias.map((_, i) => ruteoSumarDias(calSemanaInicioEquipo, i));
-  const tabla = document.getElementById('ecal-tabla');
 
   let thead = '<thead><tr>' +
     dias.map((dia, i) => `<th style="white-space:nowrap">${dia}<br><span class="muted" style="font-weight:400">${ruteoFormatFecha(fechasSemana[i])}</span></th>`).join('') +
@@ -917,17 +1007,38 @@ async function renderEquipoCalendario() {
 
   let tbody = '<tbody><tr>';
   for (const fecha of fechasSemana) {
-    const delDia = visitas.filter(v => v.fecha_visita === fecha);
-    const chips = delDia.map(v => `
-      <div class="badge ${ruteoColorCalendario(v.estado_efectivo)}" style="display:block;margin-bottom:4px;cursor:pointer;white-space:normal;text-align:left"
-           onclick="abrirDetalleVisitaEquipo('${v.visita_id}')">
-        ${v.modalidad === 'llamada' ? '📞' : '🏢'} ${ruteoEscapeHtml(v.cliente_nombre)}
-      </div>`).join('');
-    tbody += `<td style="min-width:150px;vertical-align:top">${chips || ''}</td>`;
+    tbody += `<td style="min-width:150px;vertical-align:top">${chipsDelDia(fecha)}</td>`;
   }
   tbody += '</tr></tbody>';
 
   tabla.innerHTML = thead + tbody;
+}
+
+async function buscarMisAcompanamientos() {
+  if (!document.getElementById('acomp-desde').value) {
+    document.getElementById('acomp-desde').value = ruteoHoyStr();
+    document.getElementById('acomp-hasta').value = ruteoSumarDias(ruteoHoyStr(), 30);
+  }
+  const desde = document.getElementById('acomp-desde').value;
+  const hasta = document.getElementById('acomp-hasta').value;
+
+  let lista;
+  try { lista = await ruteoRpcAuth('rpc_mis_acompanamientos', { p_desde: desde, p_hasta: hasta }) || []; }
+  catch (e) { ruteoErr(e); return; }
+
+  document.getElementById('acomp-empty').style.display = lista.length ? 'none' : 'block';
+  document.getElementById('acomp-tabla').innerHTML = lista.map(v => {
+    const motivo = [...opciones.motivo_visita].find(o => o.id === v.motivo_id);
+    return `
+    <tr>
+      <td>${ruteoFormatFecha(v.fecha_visita)}</td>
+      <td>${ruteoEscapeHtml(v.asesor_nombre)}</td>
+      <td>${ruteoEscapeHtml(v.cliente_nombre)}</td>
+      <td>${ruteoModalidadBadge(v.modalidad)}</td>
+      <td>${motivo ? ruteoEscapeHtml(motivo.nombre) : '—'}</td>
+      <td>${ruteoEstadoBadge(v.estado_efectivo)}</td>
+    </tr>`;
+  }).join('');
 }
 
 function abrirDetalleVisitaEquipo(visitaId) {
@@ -962,6 +1073,17 @@ function abrirDetalleVisitaEquipo(visitaId) {
   }
 
   document.getElementById('evi-contenido').innerHTML = detalle;
+  const check = document.getElementById('evi-acompana');
+  check.checked = !!v.yo_acompano;
+  check.onchange = async () => {
+    try {
+      await ruteoRpcAuth('rpc_marcar_acompanamiento_equipo', { p_visita_id: visitaId, p_acompana: check.checked });
+      v.yo_acompano = check.checked;
+      ruteoToast(check.checked ? 'Marcado como acompañamiento ✓' : 'Acompañamiento quitado ✓');
+      await renderEquipoCalendario();
+      await buscarMisAcompanamientos();
+    } catch (e) { ruteoErr(e); check.checked = !check.checked; }
+  };
   abrirModal('modal-visita-info-equipo');
 }
 
@@ -1133,8 +1255,15 @@ document.getElementById('btn-abrir-no-planeada').addEventListener('click', abrir
 document.getElementById('btn-np-guardar').addEventListener('click', guardarNoPlaneada);
 document.getElementById('btn-vf-buscar').addEventListener('click', renderMisVisitas);
 document.getElementById('vf-estado').addEventListener('change', renderMisVisitas);
-document.getElementById('btn-mcal-anterior').addEventListener('click', () => { calSemanaInicioAsesor = ruteoSumarDias(calSemanaInicioAsesor, -7); renderMiCalendario(); });
-document.getElementById('btn-mcal-siguiente').addEventListener('click', () => { calSemanaInicioAsesor = ruteoSumarDias(calSemanaInicioAsesor, 7); renderMiCalendario(); });
+function moverMiCalendario(n) {
+  if (calModoAsesor === 'mes') calMesAsesor = ruteoSumarMeses(calMesAsesor, n);
+  else calSemanaInicioAsesor = ruteoSumarDias(calSemanaInicioAsesor, 7 * n);
+  renderMiCalendario();
+}
+document.getElementById('btn-mcal-anterior').addEventListener('click', () => moverMiCalendario(-1));
+document.getElementById('btn-mcal-siguiente').addEventListener('click', () => moverMiCalendario(1));
+document.getElementById('btn-mcal-modo-semana').addEventListener('click', () => { calModoAsesor = 'semana'; renderMiCalendario(); });
+document.getElementById('btn-mcal-modo-mes').addEventListener('click', () => { calModoAsesor = 'mes'; renderMiCalendario(); });
 document.getElementById('btn-mv-guardar').addEventListener('click', guardarVisitada);
 document.getElementById('btn-mnv-guardar').addEventListener('click', guardarNoVisitada);
 document.getElementById('btn-mc-guardar').addEventListener('click', guardarCancelada);
@@ -1143,9 +1272,17 @@ document.getElementById('btn-cambiar-password').addEventListener('click', cambia
 document.getElementById('btn-md-buscar').addEventListener('click', () => { renderMiDashboard(); buscarMisClientesSinVisitar(); });
 document.getElementById('btn-md-sv-buscar').addEventListener('click', buscarMisClientesSinVisitar);
 document.getElementById('equipo-asesor-select').addEventListener('change', e => { equipoAsesorId = e.target.value; renderEquipoTodo(); });
-document.getElementById('btn-ecal-anterior').addEventListener('click', () => { calSemanaInicioEquipo = ruteoSumarDias(calSemanaInicioEquipo, -7); renderEquipoCalendario(); });
-document.getElementById('btn-ecal-siguiente').addEventListener('click', () => { calSemanaInicioEquipo = ruteoSumarDias(calSemanaInicioEquipo, 7); renderEquipoCalendario(); });
+function moverEquipoCalendario(n) {
+  if (calModoEquipo === 'mes') calMesEquipo = ruteoSumarMeses(calMesEquipo, n);
+  else calSemanaInicioEquipo = ruteoSumarDias(calSemanaInicioEquipo, 7 * n);
+  renderEquipoCalendario();
+}
+document.getElementById('btn-ecal-anterior').addEventListener('click', () => moverEquipoCalendario(-1));
+document.getElementById('btn-ecal-siguiente').addEventListener('click', () => moverEquipoCalendario(1));
+document.getElementById('btn-ecal-modo-semana').addEventListener('click', () => { calModoEquipo = 'semana'; renderEquipoCalendario(); });
+document.getElementById('btn-ecal-modo-mes').addEventListener('click', () => { calModoEquipo = 'mes'; renderEquipoCalendario(); });
 document.getElementById('btn-ef-buscar').addEventListener('click', renderEquipoVisitas);
+document.getElementById('btn-acomp-buscar').addEventListener('click', buscarMisAcompanamientos);
 document.getElementById('btn-esv-buscar').addEventListener('click', renderEquipoClientesSinVisitar);
 
 (async function start() {
